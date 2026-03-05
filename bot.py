@@ -127,7 +127,8 @@ def main_menu():
         keyboard=[
             [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="🔍 Qidiruv")],
             [KeyboardButton(text="📝 So'zlar qo'shish"), KeyboardButton(text="⚙️ Sozlamalar")],
-            [KeyboardButton(text="📋 Guruh statistikasi"), KeyboardButton(text="🕜 Oxirgi 10 ta zakaz")]
+            [KeyboardButton(text="📋 Guruh statistikasi"), KeyboardButton(text="🕜 Oxirgi 10 ta zakaz")],
+            [KeyboardButton(text="👥 Kuzatilayotgan guruhlar")]
         ],
         resize_keyboard=True
     )
@@ -155,6 +156,78 @@ def is_admin(user_id):
             return cursor.fetchone() is not None
     except:
         return user_id in ADMIN_IDS
+
+# Kuzatilayotgan guruhlarni o'qish
+def load_monitored_groups():
+    try:
+        with open('groups.json', 'r') as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return [g for g in data if isinstance(g, int)]
+            return []
+    except:
+        return []
+
+# Kuzatilayotgan guruhlarni saqlash
+def save_monitored_groups(groups):
+    try:
+        with open('groups.json', 'w') as f:
+            json.dump(groups, f, indent=2)
+        return True
+    except:
+        return False
+
+# Guruhlarni ko'rish uchun pagination
+def get_groups_page(page=0, per_page=5):
+    groups = load_monitored_groups()
+    total = len(groups)
+    start = page * per_page
+    end = start + per_page
+    
+    return {
+        'groups': groups[start:end],
+        'page': page,
+        'total': total,
+        'total_pages': (total + per_page - 1) // per_page,
+        'per_page': per_page
+    }
+
+# Guruhlar paneli tugmalari
+def groups_menu(page=0):
+    data = get_groups_page(page)
+    groups = data['groups']
+    current_page = data['page']
+    total_pages = data['total_pages']
+    
+    buttons = []
+    
+    # Guruhlarni ko'rsatish
+    for i, group_id in enumerate(groups):
+        buttons.append([InlineKeyboardButton(
+            text=f"🗑️ {group_id}",
+            callback_data=f"delete_group_{group_id}"
+        )])
+    
+    # Pagination tugmalari
+    nav_buttons = []
+    if current_page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"groups_page_{current_page-1}"))
+    
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {current_page+1}/{total_pages}", callback_data="groups_info"))
+    
+    if current_page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"groups_page_{current_page+1}"))
+    
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    # Yangi guruh qo'shish tugmasi
+    buttons.append([InlineKeyboardButton(text="➕ Yangi guruh qo'shish", callback_data="add_new_group")])
+    
+    # Orqaga tugmasi
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
@@ -338,6 +411,25 @@ async def passengers_only_handler(message: types.Message):
 
 
 
+@dp.message(lambda message: message.text == "👥 Kuzatilayotgan guruhlar")
+async def monitored_groups_handler(message: types.Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Sizga ruxsat yo'q!")
+        return
+    
+    data = get_groups_page(0)
+    total = data['total']
+    
+    text = f"👥 Kuzatilayotgan guruhlar: {total} ta\n\n"
+    
+    if total == 0:
+        text += "📭 Hech qanday guruh kuzatilmayapti"
+    else:
+        text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
+        text += "➕ Yangi guruh qo'shish\n\n"
+    
+    await message.answer(text, reply_markup=groups_menu(0))
+
 @dp.message(lambda message: message.text == "📝 So'zlar qo'shish")
 async def add_words_handler(message: types.Message):
     await message.answer(
@@ -443,6 +535,76 @@ def phone_request_menu():
 # Foydalanuvchi holati
 user_states = {}
 taxi_users = {}  # Taksi foydalanuvchilari uchun
+
+# Kuzatilayotgan guruhlar uchun callback query handler lari
+@dp.callback_query(lambda c: c.data.startswith("groups_page_"))
+async def groups_page_handler(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Sizga ruxsat yo'q!", show_alert=True)
+        return
+    
+    page = int(callback.data.split("_")[2])
+    data = get_groups_page(page)
+    
+    if data['total'] == 0:
+        text = "📭 Hech qanday guruh kuzatilmayapti"
+    else:
+        text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
+        text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
+    
+    await callback.message.edit_text(text, reply_markup=groups_menu(page))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "groups_info")
+async def groups_info_handler(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Sizga ruxsat yo'q!", show_alert=True)
+        return
+    
+    data = get_groups_page(0)
+    await callback.answer(f"Jami: {data['total']} ta guruh", show_alert=True)
+
+@dp.callback_query(lambda c: c.data.startswith("delete_group_"))
+async def delete_group_handler(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Sizga ruxsat yo'q!", show_alert=True)
+        return
+    
+    group_id = int(callback.data.split("_")[2])
+    groups = load_monitored_groups()
+    
+    if group_id in groups:
+        groups.remove(group_id)
+        if save_monitored_groups(groups):
+            await callback.answer(f"✅ Guruh o'chirildi: {group_id}", show_alert=True)
+            
+            # Yangilangan ro'yxatni ko'rsatish
+            data = get_groups_page(0)
+            if data['total'] == 0:
+                text = "📭 Hech qanday guruh kuzatilmayapti"
+            else:
+                text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
+                text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
+            
+            await callback.message.edit_text(text, reply_markup=groups_menu(0))
+        else:
+            await callback.answer("❌ Saqlashda xatolik!", show_alert=True)
+    else:
+        await callback.answer("⚠️ Guruh topilmadi!", show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "add_new_group")
+async def add_new_group_handler(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Sizga ruxsat yo'q!", show_alert=True)
+        return
+    
+    user_states[callback.from_user.id] = 'waiting_group_id'
+    await callback.message.edit_text(
+        "➕ Yangi guruh qo'shish\n\n"
+        "Guruh ID sini yuboring:\n"
+        "Masalan: -1003417191538"
+    )
+    await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "add_driver")
 async def add_driver_words(callback: types.CallbackQuery):
@@ -1468,6 +1630,40 @@ async def send_demo_orders():
     
     print(f"✅ {successful_orders}/10 demo zakaz muvaffaqiyatli yuborildi")
     logger.info(f"Demo zakazlar yuborish tugadi: {successful_orders}/10")
+
+# Yangi guruh ID qo'shish uchun text message handler
+@dp.message()
+async def text_message_handler(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return
+    
+    user_id = message.from_user.id
+    
+    # Yangi guruh ID qo'shish
+    if user_states.get(user_id) == 'waiting_group_id':
+        try:
+            group_id = int(message.text)
+            groups = load_monitored_groups()
+            
+            if group_id in groups:
+                await message.answer(f"⚠️ Bu guruh allaqachon mavjud!")
+            else:
+                groups.append(group_id)
+                if save_monitored_groups(groups):
+                    await message.answer(f"✅ Guruh qo'shildi: {group_id}")
+                    
+                    # Yangilangan ro'yxatni ko'rsatish
+                    data = get_groups_page(0)
+                    text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
+                    text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
+                    
+                    await message.answer(text, reply_markup=groups_menu(0))
+                else:
+                    await message.answer("❌ Saqlashda xatolik!")
+            
+            user_states.pop(user_id, None)
+        except ValueError:
+            await message.answer("❌ Noto'g'ri format! Raqam yuboring.\nMasalan: -1003417191538")
 
 async def main():
     print("🤖 Bot ishga tushmoqda...")
