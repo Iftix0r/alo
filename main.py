@@ -1,4 +1,5 @@
 from telethon import TelegramClient, events
+from telethon.tl.types import Channel, Chat
 from telethon.errors import SessionPasswordNeededError
 import asyncio
 import aiohttp
@@ -51,13 +52,87 @@ client = TelegramClient('userbot', API_ID, API_HASH)
 def load_groups():
     try:
         with open('groups.json', 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, list):
+                return [g for g in data if isinstance(g, int)]
+            return []
     except:
         return []
 
 def save_groups(groups):
     with open('groups.json', 'w') as f:
-        json.dump(groups, f)
+        json.dump(groups, f, indent=2)
+    
+async def auto_discover_groups():
+    """Bot ishga tushganda Telegramdagi guruhlarni avtomatik yuklab olish (buyurtma guruhi bundan tashqari)"""
+    global monitored_groups
+    print("🔍 Akkauntdagi guruhlarni yuklab olish...")
+    try:
+        found_groups = set()
+        group_info = []  # Guruh nomi va ID ni saqlash uchun
+        
+        async for dialog in client.iter_dialogs():
+            try:
+                entity = dialog.entity
+                group_id = None
+                group_name = None
+                
+                # FAQAT SUPERGURUHLAR (Channel, megagroup=True)
+                if isinstance(entity, Channel) and getattr(entity, "megagroup", False):
+                    # Supergroup ID format: -100XXXXXXXXX (concatenate -100 with entity.id)
+                    if entity.id > 0:
+                        group_id = int(f"-100{entity.id}")
+                    else:
+                        group_id = entity.id
+                    group_name = getattr(entity, "title", "Noma'lum")
+                
+                # FAQAT ODDIY GURUHLAR (Chat, broadcast=False)
+                elif isinstance(entity, Chat) and not getattr(entity, "broadcast", False):
+                    # Regular group ID format: -1XXXXXXXXXXX (concatenate -1 with entity.id)
+                    if entity.id > 0:
+                        group_id = int(f"-1{entity.id}")
+                    else:
+                        group_id = entity.id
+                    group_name = getattr(entity, "title", "Noma'lum")
+                else:
+                    continue
+                
+                # Buyurtma guruhini bundan tashqari qilish
+                if group_id == ORDER_GROUP_ID:
+                    continue
+                
+                # ID TEKSHIRUVI - faqat to'g'ri formatdagi ID larni saqlash
+                if isinstance(group_id, int) and group_id < 0:
+                    # Superguruh: -100 bilan boshlanadi (masalan: -1002445037757)
+                    # Oddiy guruh: -1 bilan boshlanadi (masalan: -1001238335645)
+                    group_id_str = str(group_id)
+                    
+                    # To'g'ri format tekshiruvi
+                    # -100 bilan boshlanuvchi (superguruh) yoki -1 bilan boshlanuvchi (oddiy guruh)
+                    is_valid = False
+                    if group_id_str.startswith('-100') and len(group_id_str) == 14:
+                        is_valid = True  # Superguruh: -100XXXXXXXXX (14 chars)
+                    elif group_id_str.startswith('-1') and not group_id_str.startswith('-100') and len(group_id_str) == 14:
+                        is_valid = True  # Oddiy guruh: -1XXXXXXXXXXX (14 chars)
+                    
+                    if is_valid:
+                        found_groups.add(group_id)
+                        group_info.append((group_name, group_id))
+                        print(f"  ✅ {group_name} ({group_id})")
+                    else:
+                        logger.warning(f"Noto'g'ri format: {group_name} ({group_id})")
+                        print(f"  ⚠️  Noto'g'ri format: {group_name} ({group_id})")
+            except Exception as e:
+                logger.debug(f"Guruh topishda xatolik: {e}")
+                continue
+        
+        monitored_groups = sorted(found_groups)
+        save_groups(monitored_groups)
+        print(f"\n✅ Saqlandi: {len(monitored_groups)} ta guruh (groups.json)")
+        print(f"⚠️  Buyurtma guruhi kuzatilmaydi: {ORDER_GROUP_ID}\n")
+    except Exception as e:
+        logger.error(f"Guruhlarni yuklashda xatolik: {e}")
+        print(f"❌ Guruhlarni yuklashda xatolik: {e}")
 
 monitored_groups = load_groups()
 keywords = {"driver": [], "passenger": []}
@@ -252,19 +327,39 @@ def detect_user_type(text):
 
 @client.on(events.ChatAction)
 async def chat_action_handler(event):
+    me = await client.get_me()
+    
+    # Buyurtma guruhini bundan tashqari qilish
+    if event.chat_id == ORDER_GROUP_ID:
+        return
+    
+    # Agar akaunt guruhdan chiqsa yoki chiqarib yuborilsa – ro'yxatdan o'chiramiz
     if event.user_left or event.user_kicked:
-        me = await client.get_me()
         if event.user_id == me.id and event.chat_id in monitored_groups:
             monitored_groups.remove(event.chat_id)
             save_groups(monitored_groups)
+            print(f"❌ Guruh kuzatuvdan olindi: {event.chat_id}")
+    
+    # Agar akaunt yangi guruhga qo'shilsa – avtomatik qo'shamiz
+    if event.user_joined or event.user_added:
+        if event.user_id == me.id and event.chat_id not in monitored_groups:
+            monitored_groups.append(event.chat_id)
+            save_groups(monitored_groups)
+            print(f"✅ Yangi guruh kuzatuvga qo'shildi: {event.chat_id}")
 
 @client.on(events.NewMessage(incoming=True))
 async def handler(event):
-    if not event.is_group:
+    # Guruh va lichkadan kelgan xabarlarni qabul qilish
+    is_private = event.is_private
+    is_source_group = event.is_group and event.chat_id == SOURCE_GROUP_ID
+    is_monitored_group = event.is_group and event.chat_id in monitored_groups
+    
+    # BUYURTMA GURUHINI BUNDAN TASHQARI QILISH - xabarlarni kuzatmasin va zakazni yubormasin
+    if event.is_group and event.chat_id == ORDER_GROUP_ID:
         return
     
-    # Faqat SOURCE_GROUP_ID dan kelgan xabarlarni qayta ishlash (g guruhi)
-    if event.chat_id != SOURCE_GROUP_ID:
+    # Faqat lichka, SOURCE_GROUP_ID yoki /add_group bilan qo'shilgan guruhlar
+    if not (is_private or is_source_group or is_monitored_group):
         return
     
     # O'z xabarlarini va bot xabarlarini ignore qilish
@@ -277,7 +372,29 @@ async def handler(event):
     if event.sender_id == bot_id:
         return
     
-    if event.chat_id not in monitored_groups:
+    # BARCHA BOTLARNI IGNORE QILISH - sender bot bo'lsa
+    sender = None
+    try:
+        sender = await event.get_sender()
+        if sender and getattr(sender, 'is_bot', False):
+            logger.debug(f"Bot xabari ignore qilindi: {sender.username or sender.id}")
+            return
+    except Exception as e:
+        logger.debug(f"Sender olishda xatolik (1-urinish): {e}")
+        sender = None
+    
+    # Agar sender olish xatolik bersa, qayta urinish
+    if sender is None:
+        try:
+            sender = await event.get_sender()
+            print(f"🔍 Sender qayta olindi: {sender}")
+        except Exception as e:
+            logger.debug(f"Sender olishda xatolik (2-urinish): {e}")
+            sender = None
+    
+    # Faqat avtomatik kuzatuv uchun: agar xabar SOURCE_GROUP_ID dan kelsa,
+    # shu guruh ham groups.json ga tushib qolsin
+    if is_source_group and event.chat_id not in monitored_groups:
         monitored_groups.append(event.chat_id)
         save_groups(monitored_groups)
     
@@ -287,36 +404,19 @@ async def handler(event):
     if not text_content:
         return
     
-    # 100 harf cheklovimain.
-    if len(text_content) > 100:
+    # Xabardagi real zakaz matnini ajratib olish (oxirgi bo'sh bo'lmagan qator)
+    lines = [l.strip() for l in text_content.splitlines() if l.strip()]
+    if not lines:
         return
-    
-    # Emoji va sticker tekshiruvi
-    if event.message.sticker:
-        return
-    
-    # Emoji tekshiruvi (Unicode emoji range)
-    import re
-    emoji_pattern = re.compile("["
-        u"\U0001F600-\U0001F64F"  # emoticons
-        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-        u"\U0001F680-\U0001F6FF"  # transport & map
-        u"\U0001F1E0-\U0001F1FF"  # flags
-        u"\U00002702-\U000027B0"
-        u"\U000024C2-\U0001F251"
-        "]+", flags=re.UNICODE)
-    
-    if emoji_pattern.search(text_content):
-        return
+    base_text = lines[-1]
     
     # Sender va chat ma'lumotlarini xavfsiz olish
-    sender = None
     chat = None
     
     try:
-        sender = await event.get_sender()
+        chat = await event.get_chat()
     except:
-        pass  # Sender ma'lumotini ololmasak ham davom etamiz
+        pass  # Chat ma'lumotini ololmasak ham davom etamiz
     
     try:
         chat = await event.get_chat()
@@ -329,7 +429,7 @@ async def handler(event):
     
     # Foydalanuvchi ma'lumotlari
     user_details_parts = []
-    user_info = "👤 Foydalanuvchi"
+    user_info = "Foydalanuvchi"
     user_id = 0
     
     # Oddiy xabar
@@ -341,24 +441,33 @@ async def handler(event):
                 
             if sender.id == bot_id:
                 return
+            
+            # Bot bo'lsa ignore qilish
+            if getattr(sender, 'is_bot', False):
+                logger.debug(f"Bot xabari ignore qilindi: {sender.username or sender.id}")
+                return
                 
             user_id = sender.id
+            print(f"✅ User ID olindi: {user_id}")
             user_name = f"{sender.first_name or 'Nomaʼlum'}"
             if hasattr(sender, 'last_name') and sender.last_name:
                 user_name = f"{sender.first_name} {sender.last_name}"
-            user_info = f"👤 <a href='tg://user?id={sender.id}'>{user_name}</a>"
+            user_info = f"<a href='tg://user?id={sender.id}'>{user_name}</a>"
             
             # ID ni qo'shmaslik
             if hasattr(sender, 'username') and sender.username:
                 user_details_parts.append(f"🤙 @{sender.username}")
             if hasattr(sender, 'phone') and sender.phone:
-                user_details_parts.append(f"☎️ +{sender.phone}")
-        except:
-            user_info = "👤 Noma'lum foydalanuvchi"
+                user_details_parts.append(f"\n☎️ +{sender.phone}")
+        except Exception as e:
+            logger.error(f"Sender ma'lumotini olishda xatolik: {e}")
+            print(f"❌ Sender ma'lumotini olishda xatolik: {e}")
+            user_info = "Noma'lum foydalanuvchi"
             user_id = 0
     # Sender yo'q bo'lsa
     else:
-        user_info = "👤 Noma'lum foydalanuvchi"
+        print(f"⚠️  Sender yo'q (None)")
+        user_info = "Noma'lum foydalanuvchi"
         user_id = 0
         sender = None
     
@@ -382,7 +491,7 @@ async def handler(event):
         except:
             pass
     
-    # Telefon raqam qidirish
+    # Telefon raqam qidirish (butun xabar bo'yicha)
     phone_patterns = [
         r'\+998\d{9}',
         r'998\d{9}',
@@ -400,7 +509,7 @@ async def handler(event):
     
     # Haydovchi yoki yo'lovchi so'zlari bor xabarlarni olish
     keywords = load_keywords_from_db()
-    text_lower = text_content.lower().strip()
+    text_lower = base_text.lower().strip()
     
     # Haydovchi so'zlarini tekshirish
     has_driver_words = False
@@ -456,23 +565,23 @@ async def handler(event):
     
 
     
-    # Xabar tayyorlash - Muboradi Mijoz Ismi formatida
+    # Xabar tayyorlash - sodda format
     message_parts = []
     
     # Zakaz raqamini qo'shish
-    message_parts.append(f"🚕 <b>ZAKAZ #{order_number}</b>")
+    message_parts.append(f"🚖 <b>ZAKAZ #{order_number}</b>")
     
-    # Muboradi Mijoz Ismi - asosiy qism
+    # Foydalanuvchi ismi - emoji bilan
     if user_info:
-        # "Muboradi Mijoz Ismi:" deb yozish
-        message_parts.append(f"<b>Muboradi Mijoz Ismi:</b>\n{user_info}")
+        message_parts.append(f"👤 {user_info}")
     
-    # Xabar matni
-    message_parts.append(f"<b>Xabar:</b>\n{text_content.strip()}")
+    # Xabar matni - emoji bilan (faqat xabar bo'lsa)
+    if base_text.strip():
+        message_parts.append(f"💬 {base_text.strip()}")
     
-    # Faqat mavjud qo'shimcha ma'lumotlarni qo'shish
-    if user_details.strip():
-        message_parts.append(f"<b>Kontakt:</b>\n{user_details.strip()}")
+    # Kontakt ma'lumotlari - emoji bilan (faqat xabar bo'lsa)
+    if base_text.strip() and user_details.strip():
+        message_parts.append(f"{user_details.strip()}")
     
     message = "\n\n".join(message_parts)
     
@@ -521,7 +630,7 @@ async def handler(event):
         buttons.append(second_row)
     
     try:
-        # Asosiy buyurtma guruhiga yuborish
+        # Asosiy buyurtma guruhiga yuborish - FAQAT BUYURTMA GURUHIGA
         payload = {
             "chat_id": ORDER_GROUP_ID,
             "text": message,
@@ -534,46 +643,52 @@ async def handler(event):
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json=payload
             )
-            pass
+            if response.status == 200:
+                print("✅ Asosiy buyurtma guruhiga yuborildi")
+            else:
+                error_text = await response.text()
+                print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
+                logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
         
-        # Qo'shimcha buyurtma guruhlariga yuborish
+        # USERBOT ORQALI ALOHIDA XABAR YUBORISH - FAQAT BUYURTMA GURUHIGA
         try:
-            conn = sqlite3.connect('zakazlar.db')
-            cursor = conn.cursor()
-            cursor.execute('SELECT group_id FROM order_groups')
-            order_groups = [row[0] for row in cursor.fetchall()]
-            conn.close()
-                                                                                                                                                                                                                                        
-            # print(f"Qo'shimcha guruhlar: {order_groups}")
+            # Foydalanuvchi ismini olish
+            user_name = "Noma'lum"
+            if sender and hasattr(sender, 'first_name') and sender.first_name:
+                user_name = sender.first_name
+                if hasattr(sender, 'last_name') and sender.last_name:
+                    user_name = f"{sender.first_name} {sender.last_name}"
             
-            for group_id in order_groups:
-                payload["chat_id"] = group_id
-                async with aiohttp.ClientSession() as session:
-                    response = await session.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                        json=payload
+            print(f"🔍 Userbot Debug: user_id={user_id}, user_name={user_name}")
+            
+            # Agar user_id bo'lsa, userbot xabari yuborish
+            if user_id > 0:
+                # Userbot xabari - Mijoz: Ismi formatida (FAQAT BUYURTMA GURUHIGA)
+                userbot_message = f"Mijoz: <a href='tg://user?id={user_id}'>{user_name}</a>"
+                print(f"📤 Userbot xabari tayyorlandi: {userbot_message}")
+                
+                # FAQAT Buyurtma guruhiga userbot orqali yuborish
+                try:
+                    print(f"📤 Buyurtma guruhiga yuborilmoqda: {ORDER_GROUP_ID}")
+                    result = await client.send_message(
+                        ORDER_GROUP_ID,
+                        userbot_message,
+                        parse_mode='HTML'
                     )
-                    if response.status == 200:
-                        print(f"✅ Qo'shimcha guruhga yuborildi: {group_id}")
-                    elif response.status == 400:
-                        logger.warning(f"Noto'g'ri guruh ID: {group_id} - bazadan o'chiriladi")
-                        # Noto'g'ri guruh ID ni bazadan o'chirish
-                        try:
-                            with get_db_connection() as conn:
-                                cursor = conn.cursor()
-                                cursor.execute('DELETE FROM order_groups WHERE group_id = ?', (group_id,))
-                                conn.commit()
-                                print(f"❌ Noto'g'ri guruh bazadan o'chirildi: {group_id}")
-                        except Exception as e:
-                            logger.error(f"Guruhni o'chirishda xatolik: {e}")
-                    else:
-                        print(f"❌ Qo'shimcha guruhga xatolik: {group_id} - {response.status}")
+                    print(f"✅ Userbot orqali buyurtma guruhiga yuborildi: Mijoz {user_name} (Message ID: {result.id})")
+                    logger.info(f"Userbot message sent to ORDER_GROUP: {ORDER_GROUP_ID}")
+                except Exception as e:
+                    logger.error(f"Userbot buyurtma guruhiga yuborishda xatolik: {type(e).__name__}: {e}")
+                    print(f"❌ Userbot buyurtma guruhiga yuborishda xatolik: {type(e).__name__}: {e}")
+            else:
+                print(f"⚠️  User ID topilmadi (user_id={user_id}), userbot xabari yuborilmadi")
         except Exception as e:
-            logger.error(f"Qo'shimcha guruhlar xatoligi: {e}")
-            print(f"❌ Qo'shimcha guruhlar xatoligi: {e}")
+            logger.error(f"Userbot xabari yuborishda umumiy xatolik: {type(e).__name__}: {e}")
+            print(f"❌ Userbot xabari yuborishda xatolik: {type(e).__name__}: {e}")
             
     except Exception as e:
-        pass
+        logger.error(f"Zakaz yuborishda umumiy xatolik: {e}")
+        print(f"❌ Zakaz yuborishda umumiy xatolik: {e}")
 
 async def main():
     print("\n" + "="*60)
@@ -598,6 +713,9 @@ async def main():
             except SessionPasswordNeededError:
                 password = input("2FA parolini kiriting: ")
                 await client.sign_in(password=password)
+        
+        # Guruhlarni avtomatik yuklab olish
+        await auto_discover_groups()
         
         print("🔑 Kalit so'zlarni yuklash...")
         

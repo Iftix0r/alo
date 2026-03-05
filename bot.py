@@ -679,7 +679,7 @@ async def send_taxi_order_simple(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b>Muboradi Mijoz Ismi:</b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
+        f"<b></b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
         f"<b>Telefon:</b>\n📞 {phone}\n\n"
         f"<b>Yo'nalish:</b>\n🚗 {user_data['from_city']} ➡️ {user_data['to_city']}\n\n"
         f'<b>Yo\'lovchilar:</b>\n👥 {user_data.get("passenger_count", "Noma'lum")}\n\n'
@@ -710,22 +710,7 @@ async def send_taxi_order_simple(message, user, phone):
             reply_markup=call_keyboard
         )
         
-        # Qo'shimcha guruhlarga ham yuborish
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT group_id FROM order_groups')
-                order_groups = [row[0] for row in cursor.fetchall()]
-                
-                for group_id in order_groups:
-                    await bot.send_message(
-                        chat_id=group_id,
-                        text=order_message,
-                        parse_mode='HTML',
-                        reply_markup=call_keyboard
-                    )
-        except Exception as e:
-            logger.error(f"Qo'shimcha guruhlarga yuborishda xatolik: {e}")
+        # Qo'shimcha guruhlarga yubormaslik - faqat asosiy guruhga yuborish
         
         if hasattr(message, 'answer'):
             await message.answer(
@@ -792,7 +777,7 @@ async def send_taxi_order(message, user, phone):
     
     # Asosiy guruhga yuborish
     try:
-        # 1. Matn xabarini yuborish
+        # 1. Matn xabarini yuborish - FAQAT ORDER_GROUP_ID GA
         await bot.send_message(
             chat_id=ORDER_GROUP_ID,
             text=order_message,
@@ -800,38 +785,13 @@ async def send_taxi_order(message, user, phone):
             reply_markup=call_keyboard
         )
         
-        # 2. Joylashuvni yuborish
+        # 2. Joylashuvni yuborish - FAQAT ORDER_GROUP_ID GA
         if "latitude" in user_data and "longitude" in user_data:
             await bot.send_location(
                 chat_id=ORDER_GROUP_ID,
                 latitude=user_data["latitude"],
                 longitude=user_data["longitude"]
             )
-        
-        # Qo'shimcha guruhlarga ham yuborish
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT group_id FROM order_groups')
-                order_groups = [row[0] for row in cursor.fetchall()]
-                
-                for group_id in order_groups:
-                    # 1. Matn
-                    await bot.send_message(
-                        chat_id=group_id,
-                        text=order_message,
-                        parse_mode='HTML',
-                        reply_markup=call_keyboard
-                    )
-                    # 2. Joylashuv
-                    if "latitude" in user_data and "longitude" in user_data:
-                        await bot.send_location(
-                            chat_id=group_id,
-                            latitude=user_data["latitude"],
-                            longitude=user_data["longitude"]
-                        )
-        except Exception as e:
-            logger.error(f"Qo'shimcha guruhlarga yuborishda xatolik: {e}")
         
         if hasattr(message, 'answer'):
             await message.answer(
@@ -1482,32 +1442,6 @@ async def send_demo_orders():
                 logger.info(f"Demo zakaz #{i} asosiy guruhga yuborildi")
             except Exception as e:
                 logger.error(f"Demo zakaz #{i} asosiy guruhga yuborishda xatolik: {e}")
-            
-            # Qo'shimcha guruhlarga ham yuborish
-            try:
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('SELECT group_id FROM order_groups LIMIT 3')  # Faqat 3 ta guruhga
-                    order_groups = [row[0] for row in cursor.fetchall()]
-                    
-                    for group_id in order_groups:
-                        try:
-                            await bot.send_message(
-                                chat_id=group_id,
-                                text=order_message,
-                                parse_mode='HTML',
-                                reply_markup=call_keyboard
-                            )
-                            logger.info(f"Demo zakaz #{i} guruhga yuborildi: {group_id}")
-                        except Exception as group_error:
-                            logger.warning(f"Guruh {group_id} ga yuborib bo'lmadi: {group_error}")
-                            # Agar bot guruhdan chiqarilgan bo'lsa, uni bazadan o'chirish
-                            if "kicked" in str(group_error).lower() or "forbidden" in str(group_error).lower():
-                                cursor.execute('DELETE FROM order_groups WHERE group_id = ?', (group_id,))
-                                conn.commit()
-                                logger.info(f"Guruh {group_id} bazadan o'chirildi")
-            except Exception as e:
-                logger.error(f"Demo zakazni qo'shimcha guruhlarga yuborishda xatolik: {e}")
             
             # Demo zakazni bazaga ham saqlash
             try:
