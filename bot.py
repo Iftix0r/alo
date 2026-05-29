@@ -1126,23 +1126,39 @@ async def handle_text_message(message: types.Message):
             await message.answer(f"✅ {len(words)} ta yo'lovchi so'zi qo'shildi!")
             return
         elif user_states[user_id] == 'waiting_delete_driver_words':
-            word = message.text.strip()
+            words = [w.strip() for w in message.text.split(',') if w.strip()]
             driver_words = get_keywords('driver')
-            if word in driver_words:
-                delete_keyword('driver', word)
-                await message.answer(f"❌ Haydovchi so'zi o'chirildi: {word}")
-            else:
-                await message.answer(f"⚠️ So'z topilmadi: {word}")
+            deleted, not_found = [], []
+            for word in words:
+                if word in driver_words:
+                    delete_keyword('driver', word)
+                    deleted.append(word)
+                else:
+                    not_found.append(word)
+            result = []
+            if deleted:
+                result.append(f"❌ O'chirildi: {', '.join(deleted)}")
+            if not_found:
+                result.append(f"⚠️ Topilmadi: {', '.join(not_found)}")
+            await message.answer('\n'.join(result))
             del user_states[user_id]
             return
         elif user_states[user_id] == 'waiting_delete_passenger_words':
-            word = message.text.strip()
+            words = [w.strip() for w in message.text.split(',') if w.strip()]
             passenger_words = get_keywords('passenger')
-            if word in passenger_words:
-                delete_keyword('passenger', word)
-                await message.answer(f"❌ Yo'lovchi so'zi o'chirildi: {word}")
-            else:
-                await message.answer(f"⚠️ So'z topilmadi: {word}")
+            deleted, not_found = [], []
+            for word in words:
+                if word in passenger_words:
+                    delete_keyword('passenger', word)
+                    deleted.append(word)
+                else:
+                    not_found.append(word)
+            result = []
+            if deleted:
+                result.append(f"❌ O'chirildi: {', '.join(deleted)}")
+            if not_found:
+                result.append(f"⚠️ Topilmadi: {', '.join(not_found)}")
+            await message.answer('\n'.join(result))
             del user_states[user_id]
             return
 
