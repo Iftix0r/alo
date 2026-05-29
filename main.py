@@ -559,8 +559,13 @@ async def handler(event):
     # Haydovchi va yo'lovchilarni bazaga saqlash (bloklangan bo'lsa ham)
     order_number = save_user_and_zakaz(user_id, clean_user_name.strip(), username, phone, user_type, text_content, chat_title, event.chat_id)
     
-    # Agar bloklangan bo'lsa, guruhga yubormaslik
+# Agar bloklangan bo'lsa, guruhga yubormaslik va xabarni o'chirish
     if is_blocked:
+        try:
+            await event.delete()
+            logger.info(f"Bloklangan foydalanuvchi xabari ochirildi: {user_id}")
+        except Exception as e:
+            logger.error(f"Bloklangan foydalanuvchi xabarini ochirishda xatolik: {e}")
         return
     
 
@@ -628,7 +633,16 @@ async def handler(event):
     
     if second_row:
         buttons.append(second_row)
-    
+
+    # Faqat admin tugmalari: mijozga yozish va bloklash
+    if user_id:
+        buttons.append([
+            {"text": "✍️ Mijozga yozish", "callback_data": f"reply_user_{user_id}"}
+        ])
+        buttons.append([
+            {"text": "🚫 Bloklash", "callback_data": f"block_{user_id}"}
+        ])
+
     try:
         # Asosiy buyurtma guruhiga yuborish - FAQAT BUYURTMA GURUHIGA
         payload = {
@@ -650,41 +664,9 @@ async def handler(event):
                 print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
                 logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
         
-        # USERBOT ORQALI ALOHIDA XABAR YUBORISH - FAQAT BUYURTMA GURUHIGA
-        try:
-            # Foydalanuvchi ismini olish
-            user_name = "Noma'lum"
-            if sender and hasattr(sender, 'first_name') and sender.first_name:
-                user_name = sender.first_name
-                if hasattr(sender, 'last_name') and sender.last_name:
-                    user_name = f"{sender.first_name} {sender.last_name}"
-            
-            print(f"🔍 Userbot Debug: user_id={user_id}, user_name={user_name}")
-            
-            # Agar user_id bo'lsa, userbot xabari yuborish
-            if user_id > 0:
-                # Userbot xabari - Mijoz: Ismi formatida (FAQAT BUYURTMA GURUHIGA)
-                userbot_message = f"Mijoz: <a href='tg://user?id={user_id}'>{user_name}</a>"
-                print(f"📤 Userbot xabari tayyorlandi: {userbot_message}")
-                
-                # FAQAT Buyurtma guruhiga userbot orqali yuborish
-                try:
-                    print(f"📤 Buyurtma guruhiga yuborilmoqda: {ORDER_GROUP_ID}")
-                    result = await client.send_message(
-                        ORDER_GROUP_ID,
-                        userbot_message,
-                        parse_mode='HTML'
-                    )
-                    print(f"✅ Userbot orqali buyurtma guruhiga yuborildi: Mijoz {user_name} (Message ID: {result.id})")
-                    logger.info(f"Userbot message sent to ORDER_GROUP: {ORDER_GROUP_ID}")
-                except Exception as e:
-                    logger.error(f"Userbot buyurtma guruhiga yuborishda xatolik: {type(e).__name__}: {e}")
-                    print(f"❌ Userbot buyurtma guruhiga yuborishda xatolik: {type(e).__name__}: {e}")
-            else:
-                print(f"⚠️  User ID topilmadi (user_id={user_id}), userbot xabari yuborilmadi")
-        except Exception as e:
-            logger.error(f"Userbot xabari yuborishda umumiy xatolik: {type(e).__name__}: {e}")
-            print(f"❌ Userbot xabari yuborishda xatolik: {type(e).__name__}: {e}")
+        # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
+        pass
+
             
     except Exception as e:
         logger.error(f"Zakaz yuborishda umumiy xatolik: {e}")

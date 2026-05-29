@@ -5,6 +5,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 import sqlite3
 import os
 from dotenv import load_dotenv
+from telethon import TelegramClient, errors
 
 import re
 import json
@@ -42,10 +43,34 @@ def get_db_connection():
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ORDER_GROUP_ID = int(os.getenv('ORDER_GROUP_ID'))
+API_ID = int(os.getenv('API_ID', '0'))
+API_HASH = os.getenv('API_HASH')
 ADMIN_IDS = [int(x.strip()) for x in os.getenv('ADMIN_IDS', '0').split(',')]
+
+userbot_client = TelegramClient('userbot', API_ID, API_HASH)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+async def ensure_userbot_connected():
+    try:
+        if not userbot_client.is_connected():
+            await userbot_client.connect()
+    except Exception as e:
+        logger.error(f"Userbot ulanishida xatolik: {e}")
+        raise
+
+async def send_userbot_message(user_id: int, text: str):
+    try:
+        await ensure_userbot_connected()
+        await userbot_client.send_message(entity=user_id, message=text)
+        return True
+    except errors.FloodWaitError as e:
+        logger.error(f"Userbot flood wait: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Userbot xabar yuborishda xatolik: {e}")
+        return False
 
 # Ma'lumotlar bazasini ishga tushirish
 def init_keywords_db():
@@ -707,6 +732,45 @@ async def unblock_user_callback(callback: types.CallbackQuery):
 
 
 
+@dp.callback_query(lambda c: c.data.startswith("reply_user_"))
+async def reply_user_callback(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Bu tugma faqat adminlar uchun!", show_alert=True)
+        return
+
+    user_id_str = callback.data.replace("reply_user_", "", 1)
+    try:
+        target_user_id = int(user_id_str)
+    except ValueError:
+        await callback.answer("❌ Noto'g'ri foydalanuvchi ID", show_alert=True)
+        return
+
+    reply_text = (
+        "Assalomu alaykum!\n\n"
+        "Siz taksi so'ragan ekansiz. Biz sizga yordam beramiz.\n"
+        "Iltimos, manzil va telefon raqamingizni tasdiqlang yoki qo'shimcha ma'lumot yuboring.\n\n"
+        "✅ Tez orada siz bilan bog'lanamiz."
+    )
+
+    try:
+        sent = await send_userbot_message(target_user_id, reply_text)
+        if sent:
+            await callback.answer("✅ Mijozga xabar userbot orqali yuborildi!", show_alert=True)
+        else:
+            await callback.answer("❌ Userbot orqali xabar yuborilmadi. Iltimos, userbotga ulanmagan bo'lishi mumkin.", show_alert=True)
+
+        if callback.message.reply_markup and callback.message.reply_markup.inline_keyboard:
+            new_keyboard = []
+            for row in callback.message.reply_markup.inline_keyboard:
+                new_row = [button for button in row if button.callback_data != callback.data]
+                if new_row:
+                    new_keyboard.append(new_row)
+            await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=new_keyboard) if new_keyboard else None)
+    except Exception as e:
+        logger.error(f"Mijozga javob yuborishda xatolik: {e}")
+        await callback.answer("❌ Userbot orqali xabar yuborishda xatolik. Qayta urinib ko'ring.", show_alert=True)
+
+
 # Yo'nalish tanlash handleri
 @dp.callback_query(lambda c: c.data.startswith("dir_"))
 async def direction_handler(callback: types.CallbackQuery):
@@ -856,10 +920,11 @@ async def send_taxi_order_simple(message, user, phone):
         else:
             formatted_phone = '+998' + formatted_phone
     
-    # Qo'ngiroq qilish tugmasi
-    call_keyboard = InlineKeyboardMarkup(
+    # Qo'ngiroq qilish tugmasi va admin uchun javob tugmasi
+    order_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"📞 Qo'ngiroq qilish", url=f"https://onmap.uz/tel/{formatted_phone}")]
+            [InlineKeyboardButton(text=f"📞 Qo'ngiroq qilish", url=f"https://onmap.uz/tel/{formatted_phone}")],
+            [InlineKeyboardButton(text="✍️ Mijozga javob berish", callback_data=f"reply_user_{user.id}")]
         ]
     )
     
@@ -869,7 +934,7 @@ async def send_taxi_order_simple(message, user, phone):
             chat_id=ORDER_GROUP_ID,
             text=order_message,
             parse_mode='HTML',
-            reply_markup=call_keyboard
+            reply_markup=order_keyboard
         )
         
         # Qo'shimcha guruhlarga yubormaslik - faqat asosiy guruhga yuborish
@@ -921,10 +986,11 @@ async def send_taxi_order(message, user, phone):
         else:
             formatted_phone = '+998' + formatted_phone
     
-    # Qo'ngiroq qilish tugmasi
-    call_keyboard = InlineKeyboardMarkup(
+    # Qo'ngiroq qilish tugmasi va admin uchun javob tugmasi
+    order_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"📞 Qo'ngiroq qilish", url=f"https://onmap.uz/tel/{formatted_phone}")]
+            [InlineKeyboardButton(text=f"📞 Qo'ngiroq qilish", url=f"https://onmap.uz/tel/{formatted_phone}")],
+            [InlineKeyboardButton(text="✍️ Mijozga javob berish", callback_data=f"reply_user_{user.id}")]
         ]
     )
     
@@ -944,7 +1010,7 @@ async def send_taxi_order(message, user, phone):
             chat_id=ORDER_GROUP_ID,
             text=order_message,
             parse_mode='HTML',
-            reply_markup=call_keyboard
+            reply_markup=order_keyboard
         )
         
         # 2. Joylashuvni yuborish - FAQAT ORDER_GROUP_ID GA
