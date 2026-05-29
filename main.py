@@ -573,9 +573,6 @@ async def handler(event):
     # Xabar tayyorlash - sodda format
     message_parts = []
     
-    # Zakaz raqamini qo'shish
-    message_parts.append(f"🚖 <b>ZAKAZ #{order_number}</b>")
-    
     # Foydalanuvchi ismi - emoji bilan
     if user_info:
         message_parts.append(f"👤 {user_info}")
