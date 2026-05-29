@@ -43,6 +43,7 @@ def get_db_connection():
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ORDER_GROUP_ID = int(os.getenv('ORDER_GROUP_ID'))
+FAST_GROUP_ID = int(os.getenv('FAST_GROUP_ID', '0'))
 API_ID = int(os.getenv('API_ID', '0'))
 API_HASH = os.getenv('API_HASH')
 ADMIN_IDS = [int(x.strip()) for x in os.getenv('ADMIN_IDS', '0').split(',')]
@@ -1237,6 +1238,27 @@ async def handle_text_message(message: types.Message):
                 await message.answer("❌ Noto'g'ri format! Raqam kiriting.")
             del user_states[user_id]
             return
+
+        elif user_states[user_id] == 'waiting_fast_group_id':
+            try:
+                fast_id = int(message.text.strip())
+                # .env faylini yangilash
+                env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+                with open(env_path, 'r') as f:
+                    content = f.read()
+                import re as _re
+                if 'FAST_GROUP_ID' in content:
+                    content = _re.sub(r'FAST_GROUP_ID=.*', f'FAST_GROUP_ID={fast_id}', content)
+                else:
+                    content += f'\nFAST_GROUP_ID={fast_id}\n'
+                with open(env_path, 'w') as f:
+                    f.write(content)
+                os.environ['FAST_GROUP_ID'] = str(fast_id)
+                await message.answer(f"✅ Fast guruh ID saqlandi: {fast_id}\n\n⚠️ Kuchga kirishi uchun botni qayta ishga tushiring.")
+            except ValueError:
+                await message.answer("❌ Noto'g'ri format! Raqam kiriting.")
+            del user_states[user_id]
+            return
     
     # Qidiruv funksiyasi - faqat admin uchun
     if is_admin(message.from_user.id):
@@ -1444,6 +1466,8 @@ def groups_menu():
             [InlineKeyboardButton(text="📤 Buyurtma guruhlari", callback_data="list_order_groups")],
             [InlineKeyboardButton(text="➕ Buyurtma guruh qo'shish", callback_data="add_order_group_prompt")],
             [InlineKeyboardButton(text="➖ Buyurtma guruh o'chirish", callback_data="remove_order_group_prompt")],
+            [InlineKeyboardButton(text="⚡ Fast guruh ID ko'rish", callback_data="show_fast_group")],
+            [InlineKeyboardButton(text="✏️ Fast guruh ID o'zgartirish", callback_data="set_fast_group")],
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_menu")]
         ]
     )
@@ -1570,6 +1594,21 @@ def unblock_user(user_id):
     except Exception as e:
         logger.error(f"Error unblocking user {user_id}: {e}")
         raise
+
+@dp.callback_query(lambda c: c.data == "show_fast_group")
+async def show_fast_group_handler(callback: types.CallbackQuery):
+    fid = os.getenv('FAST_GROUP_ID', 'Sozlanmagan')
+    await callback.answer(f"⚡ Fast guruh ID: {fid}", show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "set_fast_group")
+async def set_fast_group_handler(callback: types.CallbackQuery):
+    user_states[callback.from_user.id] = 'waiting_fast_group_id'
+    await callback.message.edit_text(
+        "⚡ Fast guruh ID sini yuboring:\n"
+        "Masalan: -1001234567890\n\n"
+        "ℹ️ .env faylidagi FAST_GROUP_ID yangilanadi"
+    )
+    await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "list_order_groups")
 async def list_order_groups_handler(callback: types.CallbackQuery):

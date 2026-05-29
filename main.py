@@ -45,7 +45,8 @@ API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ORDER_GROUP_ID = int(os.getenv('ORDER_GROUP_ID'))
-SOURCE_GROUP_ID = int(os.getenv('SOURCE_GROUP_ID', ORDER_GROUP_ID))  # Default to ORDER_GROUP_ID if not set
+FAST_GROUP_ID = int(os.getenv('FAST_GROUP_ID', '0'))
+SOURCE_GROUP_ID = int(os.getenv('SOURCE_GROUP_ID', ORDER_GROUP_ID))
 
 client = TelegramClient('userbot', API_ID, API_HASH)
 
@@ -306,7 +307,20 @@ def save_user_and_zakaz(user_id, user_name, username, phone, user_type, message,
     
     return next_order_number
 
-def detect_user_type(text):
+def is_fast_message(text):
+    """60 belgidan kam, emoji/stiker yo'q matnlarni tekshirish"""
+    if not text or len(text) >= 60:
+        return False
+    emoji_pattern = re.compile(
+        u"[\U0001F300-\U0001FFFF"
+        u"\U00002600-\U000027BF"
+        u"\U0001F900-\U0001F9FF"
+        u"\u2600-\u26FF\u2700-\u27BF]+",
+        re.UNICODE
+    )
+    return not emoji_pattern.search(text)
+
+
     if not text or not isinstance(text, str):
         return '🙋♂️ Yolovchi'
     
@@ -660,6 +674,25 @@ async def handler(event):
                 error_text = await response.text()
                 print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
                 logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
+
+        # Fast guruhga yuborish - 60 belgidan kam, emoji yo'q xabarlar
+        if FAST_GROUP_ID and is_fast_message(base_text):
+            fast_payload = {
+                "chat_id": FAST_GROUP_ID,
+                "text": message,
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": buttons} if buttons else None
+            }
+            async with aiohttp.ClientSession() as session:
+                resp = await session.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json=fast_payload
+                )
+                if resp.status == 200:
+                    print("⚡ Fast guruhga yuborildi")
+                else:
+                    err = await resp.text()
+                    logger.error(f"Fast guruhga yuborishda xatolik: {resp.status} - {err}")
         
         # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
         pass
