@@ -14,13 +14,22 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"
 fi
 
-# python3 bot.py va main.py processlarini ham o'ldirish
 pkill -f "python3 bot.py" 2>/dev/null
 pkill -f "python3 main.py" 2>/dev/null
 sleep 1
 
-# Qayta ishga tushirish
+# Git pull
 cd "$DIR"
+echo "📥 Git pull..."
+git pull origin main 2>&1 | tail -5
+
+# Python cache tozalash
+echo "🧹 Cache tozalanmoqda..."
+find "$DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+find "$DIR" -name "*.pyc" -delete 2>/dev/null
+echo "✅ Cache tozalandi"
+
+# Qayta ishga tushirish
 nohup python3 bot.py >> "$DIR/bot.log" 2>&1 &
 echo $! > "$PID_FILE"
 echo "🔄 Bot qayta ishga tushdi (PID: $!)"
