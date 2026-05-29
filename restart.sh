@@ -29,6 +29,11 @@ find "$DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 find "$DIR" -name "*.pyc" -delete 2>/dev/null
 echo "✅ Cache tozalandi"
 
+# Dependencylarni o'rnatish
+echo "📦 pip install..."
+pip install -r "$DIR/requirements.txt" -q
+echo "✅ Paketlar o'rnatildi"
+
 # Qayta ishga tushirish
 nohup python3 bot.py >> "$DIR/bot.log" 2>&1 &
 echo $! > "$PID_FILE"
