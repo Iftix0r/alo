@@ -363,6 +363,9 @@ async def chat_action_handler(event):
 
 @client.on(events.NewMessage(incoming=True))
 async def handler(event):
+    # Tizim xabarlarini (yangi a'zo qo'shildi va h.k.) ignore qilish
+    if event.action is not None:
+        return
     # Guruh va lichkadan kelgan xabarlarni qabul qilish
     is_private = event.is_private
     is_source_group = event.is_group and event.chat_id == SOURCE_GROUP_ID
