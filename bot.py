@@ -6,7 +6,6 @@ import sqlite3
 import os
 from dotenv import load_dotenv
 from telethon import TelegramClient, errors
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError
 
 import re
 import json
@@ -49,40 +48,30 @@ API_ID = int(os.getenv('API_ID', '0'))
 API_HASH = os.getenv('API_HASH')
 ADMIN_IDS = [int(x.strip()) for x in os.getenv('ADMIN_IDS', '0').split(',')]
 
-# Akaunt ulash jarayoni uchun vaqtinchalik ma'lumotlar
-pending_auth = {}  # admin_id -> {phone, client, step}
+userbot_client = TelegramClient('userbot', API_ID, API_HASH)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-def load_accounts():
+async def ensure_userbot_connected():
     try:
-        with open('accounts.json', 'r') as f:
-            return json.load(f)
-    except:
-        return []
-
-def save_accounts(accounts):
-    with open('accounts.json', 'w') as f:
-        json.dump(accounts, f, indent=2)
+        if not userbot_client.is_connected():
+            await userbot_client.connect()
+    except Exception as e:
+        logger.error(f"Userbot ulanishida xatolik: {e}")
+        raise
 
 async def send_userbot_message(user_id: int, text: str):
-    """Birinchi faol akaunt orqali xabar yuborish"""
-    accounts = load_accounts()
-    for acc in accounts:
-        phone = acc.get('phone', '')
-        session_name = f"session_{phone.replace('+', '')}"
-        try:
-            client = TelegramClient(session_name, API_ID, API_HASH)
-            await client.connect()
-            if await client.is_user_authorized():
-                await client.send_message(entity=user_id, message=text)
-                await client.disconnect()
-                return True
-            await client.disconnect()
-        except Exception as e:
-            logger.error(f"Xabar yuborishda xatolik ({phone}): {e}")
-    return False
+    try:
+        await ensure_userbot_connected()
+        await userbot_client.send_message(entity=user_id, message=text)
+        return True
+    except errors.FloodWaitError as e:
+        logger.error(f"Userbot flood wait: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Userbot xabar yuborishda xatolik: {e}")
+        return False
 
 # Ma'lumotlar bazasini ishga tushirish
 def init_keywords_db():
@@ -165,23 +154,11 @@ def main_menu():
             [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="🔍 Qidiruv")],
             [KeyboardButton(text="📝 So'zlar qo'shish"), KeyboardButton(text="⚙️ Sozlamalar")],
             [KeyboardButton(text="📋 Guruh statistikasi"), KeyboardButton(text="🕜 Oxirgi 10 ta zakaz")],
-            [KeyboardButton(text="👥 Kuzatilayotgan guruhlar"), KeyboardButton(text="👤 Akauntlar")]
+            [KeyboardButton(text="👥 Kuzatilayotgan guruhlar")]
         ],
         resize_keyboard=True
     )
     return keyboard
-
-def accounts_menu():
-    accounts = load_accounts()
-    buttons = []
-    for acc in accounts:
-        phone = acc.get('phone', 'Noma\'lum')
-        name = acc.get('name', '')
-        label = f"🗑️ {name} ({phone})" if name else f"🗑️ {phone}"
-        buttons.append([InlineKeyboardButton(text=label, callback_data=f"del_account_{phone}")])
-    buttons.append([InlineKeyboardButton(text="➕ Yangi akaunt qo'shish", callback_data="add_account")])
-    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # So'z qo'shish menu
 def words_menu():
@@ -277,49 +254,6 @@ def groups_menu(page=0):
     buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-@dp.message(lambda message: message.text == "👤 Akauntlar")
-async def accounts_handler(message: types.Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ Sizga ruxsat yo'q!")
-        return
-    accounts = load_accounts()
-    text = f"👤 Ulangan akauntlar: {len(accounts)} ta\n"
-    if accounts:
-        text += "\n🗑️ Tugmani bosib akauntni o'chirish mumkin"
-    else:
-        text += "\n❌ Hech qanday akaunt ulanmagan"
-    await message.answer(text, reply_markup=accounts_menu())
-
-@dp.callback_query(lambda c: c.data == "add_account")
-async def add_account_start(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("❌ Ruxsat yo'q", show_alert=True)
-        return
-    pending_auth[callback.from_user.id] = {'step': 'waiting_phone'}
-    await callback.message.edit_text(
-        "📱 Telefon raqamini kiriting:\n"
-        "Masalan: +998901234567"
-    )
-    await callback.answer()
-
-@dp.callback_query(lambda c: c.data.startswith("del_account_"))
-async def delete_account(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("❌ Ruxsat yo'q", show_alert=True)
-        return
-    phone = callback.data.replace("del_account_", "", 1)
-    accounts = load_accounts()
-    accounts = [a for a in accounts if a.get('phone') != phone]
-    save_accounts(accounts)
-    # Session faylni o'chirish
-    session_file = f"session_{phone.replace('+', '')}.session"
-    if os.path.exists(session_file):
-        os.remove(session_file)
-    await callback.answer(f"✅ {phone} o'chirildi", show_alert=True)
-    accounts_list = load_accounts()
-    text = f"👤 Ulangan akauntlar: {len(accounts_list)} ta"
-    await callback.message.edit_text(text, reply_markup=accounts_menu())
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
@@ -1128,128 +1062,10 @@ async def search_handler(message: types.Message):
     user_states[message.from_user.id] = 'waiting_search_query'
     await message.answer("🔍 Qidiruv uchun:\n\n👤 Foydalanuvchi ismini yoki\n🆔 Chat ID raqamini yozing:")
 
-@dp.message(lambda message: message.text and not message.text.startswith('/') and not message.text in ["📊 Statistika", "📝 So'zlar qo'shish", "⚙️ Sozlamalar", "🔍 Qidiruv", "🕜 Oxirgi 10 ta zakaz", "📋 Guruh statistikasi", "👤 Akauntlar", "👥 Kuzatilayotgan guruhlar"])
+@dp.message(lambda message: message.text and not message.text.startswith('/') and not message.text in ["📊 Statistika", "📝 So'zlar qo'shish", "⚙️ Sozlamalar", "🔍 Qidiruv", "🕜 Oxirgi 10 ta zakaz", "📋 Guruh statistikasi"])
 async def handle_text_message(message: types.Message):
     user_id = message.from_user.id
-
-    # === AKAUNT ULASH JARAYONI ===
-    if user_id in pending_auth:
-        step = pending_auth[user_id].get('step')
-
-        if step == 'waiting_phone':
-            phone = message.text.strip()
-            if not phone.startswith('+'):
-                phone = '+' + phone
-            session_name = f"session_{phone.replace('+', '')}"
-            client = TelegramClient(session_name, API_ID, API_HASH)
-            try:
-                await client.connect()
-                if await client.is_user_authorized():
-                    me = await client.get_me()
-                    accounts = load_accounts()
-                    if not any(a['phone'] == phone for a in accounts):
-                        accounts.append({'phone': phone, 'name': me.first_name or ''})
-                        save_accounts(accounts)
-                    await client.disconnect()
-                    del pending_auth[user_id]
-                    await message.answer(
-                        f"✅ Akaunt allaqachon ulangan: {me.first_name} ({phone})\n"
-                        f"♻️ Botni qayta ishga tushiring!",
-                        reply_markup=main_menu()
-                    )
-                else:
-                    sent = await client.send_code_request(phone, force_sms=True)
-                    pending_auth[user_id] = {
-                        'step': 'waiting_code',
-                        'phone': phone,
-                        'client': client,
-                        'phone_code_hash': sent.phone_code_hash
-                    }
-                    await message.answer(
-                        f"📲 {phone} raqamiga kod yuborildi\n\n"
-                        "⚠️ Kod Telegram ilovasiga yoki SMS orqali keladi\n"
-                        "Telegram kodini kiriting:"
-                    )
-            except PhoneNumberInvalidError:
-                await client.disconnect()
-                del pending_auth[user_id]
-                await message.answer("❌ Noto'g'ri telefon raqam! Qayta urinib ko'ring.")
-            except Exception as e:
-                try:
-                    await client.disconnect()
-                except:
-                    pass
-                del pending_auth[user_id]
-                logger.error(f"Phone step xatolik: {e}")
-                await message.answer(f"❌ Xatolik: {e}")
-            return
-
-        elif step == 'waiting_code':
-            code = message.text.strip().replace(' ', '').replace('-', '')
-            client = pending_auth[user_id]['client']
-            phone = pending_auth[user_id]['phone']
-            phone_code_hash = pending_auth[user_id]['phone_code_hash']
-            try:
-                await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-                me = await client.get_me()
-                accounts = load_accounts()
-                if not any(a['phone'] == phone for a in accounts):
-                    accounts.append({'phone': phone, 'name': me.first_name or ''})
-                    save_accounts(accounts)
-                # disconnect QILMAYMIZ — session faylga yozilishi kerak
-                await client.disconnect()
-                del pending_auth[user_id]
-                await message.answer(
-                    f"✅ Akaunt muvaffaqiyatli ulandi!\n"
-                    f"👤 {me.first_name} ({phone})\n\n"
-                    f"♻️ Botni qayta ishga tushiring!",
-                    reply_markup=main_menu()
-                )
-            except SessionPasswordNeededError:
-                pending_auth[user_id]['step'] = 'waiting_2fa'
-                await message.answer("🔐 2FA parolini kiriting:")
-            except PhoneCodeInvalidError:
-                await message.answer("❌ Noto'g'ri kod! Qayta kiriting:")
-            except Exception as e:
-                try:
-                    await client.disconnect()
-                except:
-                    pass
-                del pending_auth[user_id]
-                logger.error(f"Code step xatolik: {e}")
-                await message.answer(f"❌ Xatolik: {e}")
-            return
-
-        elif step == 'waiting_2fa':
-            password = message.text.strip()
-            client = pending_auth[user_id]['client']
-            phone = pending_auth[user_id]['phone']
-            try:
-                await client.sign_in(password=password)
-                me = await client.get_me()
-                accounts = load_accounts()
-                if not any(a['phone'] == phone for a in accounts):
-                    accounts.append({'phone': phone, 'name': me.first_name or ''})
-                    save_accounts(accounts)
-                await client.disconnect()
-                del pending_auth[user_id]
-                await message.answer(
-                    f"✅ 2FA bilan muvaffaqiyatli ulandi!\n"
-                    f"👤 {me.first_name} ({phone})\n\n"
-                    f"♻️ Botni qayta ishga tushiring!",
-                    reply_markup=main_menu()
-                )
-            except Exception as e:
-                try:
-                    await client.disconnect()
-                except:
-                    pass
-                del pending_auth[user_id]
-                logger.error(f"2FA step xatolik: {e}")
-                await message.answer(f"❌ Noto'g'ri parol yoki xatolik: {e}")
-            return
-    # === AKAUNT ULASH JARAYONI TUGADI ===
-
+    
     # Taksi foydalanuvchilari uchun holatlar
     if user_id in user_states:
         # Yo'lovchilar soni
@@ -1643,8 +1459,8 @@ def admin_menu():
     )
     return keyboard
 
-# Groups menu (Sozlamalar ichida)
-def settings_groups_menu():
+# Groups menu
+def groups_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📤 Buyurtma guruhlari", callback_data="list_order_groups")],
@@ -1694,7 +1510,7 @@ async def admin_menu_handler(callback: types.CallbackQuery):
 async def groups_menu_handler(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "📋 Guruh boshqaruvi:",
-        reply_markup=settings_groups_menu()
+        reply_markup=groups_menu()
     )
 
 @dp.callback_query(lambda c: c.data == "users_menu")
@@ -1972,15 +1788,19 @@ async def text_message_handler(message: types.Message):
 
 async def main():
     print("🤖 Bot ishga tushmoqda...")
+    
+    # Ma'lumotlar bazasini ishga tushirish
     init_keywords_db()
     print("✅ Keywords bazasi tayyor")
-
-    # main.py (userbot) ni alohida process sifatida ishga tushirish
+    
+    # Main.py ni avtomatik ishga tushirish
     import subprocess
     import sys
     subprocess.Popen([sys.executable, 'main.py'])
     print("📱 Userbot ham ishga tushdi")
+    
 
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
