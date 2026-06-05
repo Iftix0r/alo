@@ -1158,30 +1158,33 @@ async def handle_text_message(message: types.Message):
                         reply_markup=main_menu()
                     )
                 else:
-                    result = await client.send_code_request(phone)
+                    sent = await client.send_code_request(phone)
                     pending_auth[user_id] = {
                         'step': 'waiting_code',
                         'phone': phone,
                         'client': client,
-                        'phone_code_hash': result.phone_code_hash
+                        'phone_code_hash': sent.phone_code_hash
                     }
                     await message.answer(
-                        f"📲 {phone} ga SMS kod yuborildi\n"
-                        "Kodni kiriting:"
+                        f"📲 {phone} raqamiga SMS kod yuborildi\n\n"
+                        "Telegram kodini kiriting:"
                     )
             except PhoneNumberInvalidError:
                 await client.disconnect()
                 del pending_auth[user_id]
                 await message.answer("❌ Noto'g'ri telefon raqam! Qayta urinib ko'ring.")
             except Exception as e:
-                await client.disconnect()
+                try:
+                    await client.disconnect()
+                except:
+                    pass
                 del pending_auth[user_id]
                 logger.error(f"Phone step xatolik: {e}")
                 await message.answer(f"❌ Xatolik: {e}")
             return
 
         elif step == 'waiting_code':
-            code = message.text.strip().replace(' ', '')
+            code = message.text.strip().replace(' ', '').replace('-', '')
             client = pending_auth[user_id]['client']
             phone = pending_auth[user_id]['phone']
             phone_code_hash = pending_auth[user_id]['phone_code_hash']
@@ -1192,12 +1195,13 @@ async def handle_text_message(message: types.Message):
                 if not any(a['phone'] == phone for a in accounts):
                     accounts.append({'phone': phone, 'name': me.first_name or ''})
                     save_accounts(accounts)
+                # disconnect QILMAYMIZ — session faylga yozilishi kerak
                 await client.disconnect()
                 del pending_auth[user_id]
                 await message.answer(
                     f"✅ Akaunt muvaffaqiyatli ulandi!\n"
                     f"👤 {me.first_name} ({phone})\n\n"
-                    f"♻️ Botni qayta ishga tushiring: barcha guruhlar avtomatik topiladi.",
+                    f"♻️ Botni qayta ishga tushiring!",
                     reply_markup=main_menu()
                 )
             except SessionPasswordNeededError:
@@ -1206,7 +1210,10 @@ async def handle_text_message(message: types.Message):
             except PhoneCodeInvalidError:
                 await message.answer("❌ Noto'g'ri kod! Qayta kiriting:")
             except Exception as e:
-                await client.disconnect()
+                try:
+                    await client.disconnect()
+                except:
+                    pass
                 del pending_auth[user_id]
                 logger.error(f"Code step xatolik: {e}")
                 await message.answer(f"❌ Xatolik: {e}")
@@ -1232,7 +1239,10 @@ async def handle_text_message(message: types.Message):
                     reply_markup=main_menu()
                 )
             except Exception as e:
-                await client.disconnect()
+                try:
+                    await client.disconnect()
+                except:
+                    pass
                 del pending_auth[user_id]
                 logger.error(f"2FA step xatolik: {e}")
                 await message.answer(f"❌ Noto'g'ri parol yoki xatolik: {e}")
@@ -1632,8 +1642,8 @@ def admin_menu():
     )
     return keyboard
 
-# Groups menu
-def groups_menu():
+# Groups menu (Sozlamalar ichida)
+def settings_groups_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📤 Buyurtma guruhlari", callback_data="list_order_groups")],
@@ -1683,7 +1693,7 @@ async def admin_menu_handler(callback: types.CallbackQuery):
 async def groups_menu_handler(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "📋 Guruh boshqaruvi:",
-        reply_markup=groups_menu()
+        reply_markup=settings_groups_menu()
     )
 
 @dp.callback_query(lambda c: c.data == "users_menu")
