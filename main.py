@@ -1,6 +1,5 @@
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat
-from telethon.errors import SessionPasswordNeededError
 import asyncio
 import aiohttp
 import os
@@ -11,19 +10,21 @@ import logging
 from dotenv import load_dotenv
 from contextlib import contextmanager
 
-
 load_dotenv()
 
-# Logging sozlash
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('userbot.log'),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler('userbot.log'), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
+
+API_ID = int(os.getenv('API_ID'))
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+ORDER_GROUP_ID = int(os.getenv('ORDER_GROUP_ID'))
+FAST_GROUP_ID = int(os.getenv('FAST_GROUP_ID', '0'))
+
 
 @contextmanager
 def get_db_connection():
@@ -35,863 +36,353 @@ def get_db_connection():
     except Exception as e:
         if conn:
             conn.rollback()
-        logger.error(f"Database error: {e}")
         raise
     finally:
         if conn:
             conn.close()
 
-API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ORDER_GROUP_ID = int(os.getenv('ORDER_GROUP_ID'))
-FAST_GROUP_ID = int(os.getenv('FAST_GROUP_ID', '0'))
-SOURCE_GROUP_ID = int(os.getenv('SOURCE_GROUP_ID', ORDER_GROUP_ID))
 
-client = TelegramClient('userbot', API_ID, API_HASH)
+def load_accounts():
+    try:
+        with open('accounts.json', 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
 
 def load_groups():
     try:
         with open('groups.json', 'r') as f:
             data = json.load(f)
-            if isinstance(data, list):
-                return [g for g in data if isinstance(g, int)]
-            return []
+            return [g for g in data if isinstance(g, int)] if isinstance(data, list) else []
     except:
         return []
 
+
 def save_groups(groups):
     with open('groups.json', 'w') as f:
-        json.dump(groups, f, indent=2)
-    
-async def auto_discover_groups():
-    """Bot ishga tushganda Telegramdagi guruhlarni avtomatik yuklab olish (buyurtma guruhi bundan tashqari)"""
-    global monitored_groups
-    print("🔍 Akkauntdagi guruhlarni yuklab olish...")
-    try:
-        found_groups = set()
-        group_info = []  # Guruh nomi va ID ni saqlash uchun
-        
-        async for dialog in client.iter_dialogs():
-            try:
-                entity = dialog.entity
-                group_id = None
-                group_name = None
-                
-                # FAQAT SUPERGURUHLAR (Channel, megagroup=True)
-                if isinstance(entity, Channel) and getattr(entity, "megagroup", False):
-                    # Supergroup ID format: -100XXXXXXXXX (concatenate -100 with entity.id)
-                    if entity.id > 0:
-                        group_id = int(f"-100{entity.id}")
-                    else:
-                        group_id = entity.id
-                    group_name = getattr(entity, "title", "Noma'lum")
-                
-                # FAQAT ODDIY GURUHLAR (Chat, broadcast=False)
-                elif isinstance(entity, Chat) and not getattr(entity, "broadcast", False):
-                    # Regular group ID format: -1XXXXXXXXXXX (concatenate -1 with entity.id)
-                    if entity.id > 0:
-                        group_id = int(f"-1{entity.id}")
-                    else:
-                        group_id = entity.id
-                    group_name = getattr(entity, "title", "Noma'lum")
-                else:
-                    continue
-                
-                # Buyurtma guruhini bundan tashqari qilish
-                if group_id == ORDER_GROUP_ID:
-                    continue
-                
-                # ID TEKSHIRUVI - faqat to'g'ri formatdagi ID larni saqlash
-                if isinstance(group_id, int) and group_id < 0:
-                    # Superguruh: -100 bilan boshlanadi (masalan: -1002445037757)
-                    # Oddiy guruh: -1 bilan boshlanadi (masalan: -1001238335645)
-                    group_id_str = str(group_id)
-                    
-                    # To'g'ri format tekshiruvi
-                    # -100 bilan boshlanuvchi (superguruh) yoki -1 bilan boshlanuvchi (oddiy guruh)
-                    is_valid = False
-                    if group_id_str.startswith('-100') and len(group_id_str) == 14:
-                        is_valid = True  # Superguruh: -100XXXXXXXXX (14 chars)
-                    elif group_id_str.startswith('-1') and not group_id_str.startswith('-100') and len(group_id_str) == 14:
-                        is_valid = True  # Oddiy guruh: -1XXXXXXXXXXX (14 chars)
-                    
-                    if is_valid:
-                        found_groups.add(group_id)
-                        group_info.append((group_name, group_id))
-                        print(f"  ✅ {group_name} ({group_id})")
-                    else:
-                        logger.warning(f"Noto'g'ri format: {group_name} ({group_id})")
-                        print(f"  ⚠️  Noto'g'ri format: {group_name} ({group_id})")
-            except Exception as e:
-                logger.debug(f"Guruh topishda xatolik: {e}")
-                continue
-        
-        monitored_groups = sorted(found_groups)
-        save_groups(monitored_groups)
-        print(f"\n✅ Saqlandi: {len(monitored_groups)} ta guruh (groups.json)")
-        print(f"⚠️  Buyurtma guruhi kuzatilmaydi: {ORDER_GROUP_ID}\n")
-    except Exception as e:
-        logger.error(f"Guruhlarni yuklashda xatolik: {e}")
-        print(f"❌ Guruhlarni yuklashda xatolik: {e}")
+        json.dump(list(set(groups)), f, indent=2)
 
-monitored_groups = load_groups()
-keywords = {"driver": [], "passenger": []}
-
-def load_keywords_from_db():
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute('SELECT word FROM keywords WHERE type = ?', ('passenger',))
-            passenger_words = [row[0] for row in cursor.fetchall()]
-            
-            cursor.execute('SELECT word FROM keywords WHERE type = ?', ('driver',))
-            driver_words = [row[0] for row in cursor.fetchall()]
-            
-            return {
-                "passenger": passenger_words,
-                "driver": driver_words
-            }
-    except Exception as e:
-        logger.error(f"Keywords yuklashda xatolik: {e}")
-        return {"passenger": [], "driver": []}
 
 def init_database():
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Users table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    user_name TEXT,
-                    username TEXT,
-                    phone TEXT,
-                    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Zakazlar table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS zakazlar (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    order_number INTEGER,
-                    user_id INTEGER,
-                    user_type TEXT,
-                    message TEXT,
-                    group_name TEXT,
-                    group_id INTEGER,
-                    sana DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
-                )
-            ''')
-            
-            # Blocked users table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS blocked_users (
-                    user_id INTEGER PRIMARY KEY,
-                    blocked_date DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Order groups table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS order_groups (
-                    group_id INTEGER PRIMARY KEY,
-                    group_name TEXT,
-                    added_date DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Keywords table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS keywords (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    type TEXT NOT NULL,
-                    word TEXT NOT NULL,
-                    sana DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(type, word)
-                )
-            ''')
-            
-            # Agar order_number ustuni yo'q bo'lsa, qo'shish
-            cursor.execute("PRAGMA table_info(zakazlar)")
-            columns = [column[1] for column in cursor.fetchall()]
-            
-            if 'order_number' not in columns:
-                cursor.execute('ALTER TABLE zakazlar ADD COLUMN order_number INTEGER')
-                # Mavjud zakazlarga tartib raqami berish
-                cursor.execute('''
-                    UPDATE zakazlar 
-                    SET order_number = (
-                        SELECT COUNT(*) FROM zakazlar z2 
-                        WHERE z2.id <= zakazlar.id
-                    )
-                    WHERE order_number IS NULL
-                ''')
-                logger.info("Order number column added and updated")
-            
-            conn.commit()
-            logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        raise
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY, user_name TEXT, username TEXT, phone TEXT,
+            first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS zakazlar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, order_number INTEGER,
+            user_id INTEGER, user_type TEXT, message TEXT,
+            group_name TEXT, group_id INTEGER,
+            sana DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS blocked_users (
+            user_id INTEGER PRIMARY KEY,
+            blocked_date DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS keywords (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL,
+            word TEXT NOT NULL, sana DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(type, word))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS order_groups (
+            group_id INTEGER PRIMARY KEY, group_name TEXT,
+            added_date DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS admins (
+            user_id INTEGER PRIMARY KEY,
+            added_date DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
-def block_user(user_id):
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT OR REPLACE INTO blocked_users (user_id) VALUES (?)', (user_id,))
-            conn.commit()
-            logger.info(f"User blocked: {user_id}")
-    except Exception as e:
-        logger.error(f"Error blocking user {user_id}: {e}")
-        raise
+        cursor.execute("PRAGMA table_info(zakazlar)")
+        if 'order_number' not in [c[1] for c in cursor.fetchall()]:
+            cursor.execute('ALTER TABLE zakazlar ADD COLUMN order_number INTEGER')
 
-def unblock_user(user_id):
+        cursor.execute('SELECT COUNT(*) FROM keywords WHERE type=?', ('passenger',))
+        if cursor.fetchone()[0] == 0:
+            for w in ["kerak", "ketish kerak", "olib keting", "yo'lovchi kerak", "borish kerak", "ketmoqchiman"]:
+                cursor.execute('INSERT OR IGNORE INTO keywords (type, word) VALUES (?,?)', ('passenger', w))
+
+        cursor.execute('SELECT COUNT(*) FROM keywords WHERE type=?', ('driver',))
+        if cursor.fetchone()[0] == 0:
+            for w in ["ketaman", "boraman", "olib ketaman", "haydovchiman", "mashina bor", "taksi"]:
+                cursor.execute('INSERT OR IGNORE INTO keywords (type, word) VALUES (?,?)', ('driver', w))
+
+        conn.commit()
+
+
+def load_keywords():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM blocked_users WHERE user_id = ?', (user_id,))
-            conn.commit()
-            logger.info(f"User unblocked: {user_id}")
-    except Exception as e:
-        logger.error(f"Error unblocking user {user_id}: {e}")
-        raise
+            cursor.execute('SELECT word FROM keywords WHERE type=?', ('passenger',))
+            p = [r[0] for r in cursor.fetchall()]
+            cursor.execute('SELECT word FROM keywords WHERE type=?', ('driver',))
+            d = [r[0] for r in cursor.fetchall()]
+            return {'passenger': p, 'driver': d}
+    except:
+        return {'passenger': [], 'driver': []}
+
 
 def is_user_blocked(user_id):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT 1 FROM blocked_users WHERE user_id = ?', (user_id,))
-            result = cursor.fetchone()
-            return result is not None
-    except Exception as e:
-        logger.error(f"Error checking blocked user {user_id}: {e}")
+            cursor.execute('SELECT 1 FROM blocked_users WHERE user_id=?', (user_id,))
+            return cursor.fetchone() is not None
+    except:
         return False
 
-def save_user_and_zakaz(user_id, user_name, username, phone, user_type, message, group_name, group_id):
-    conn = sqlite3.connect('zakazlar.db')
-    cursor = conn.cursor()
-    
-    # Foydalanuvchini saqlash yoki yangilash
-    cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, user_name, username, phone, first_seen, last_seen)
-        VALUES (?, ?, ?, ?, 
-                COALESCE((SELECT first_seen FROM users WHERE user_id = ?), CURRENT_TIMESTAMP),
-                CURRENT_TIMESTAMP)
-    ''', (user_id, user_name, username, phone, user_id))
-    
-    # Keyingi zakaz raqamini olish
-    cursor.execute('SELECT COALESCE(MAX(order_number), 0) + 1 FROM zakazlar')
-    next_order_number = cursor.fetchone()[0]
-    
-    # Zakazni saqlash
-    cursor.execute('''
-        INSERT INTO zakazlar (order_number, user_id, user_type, message, group_name, group_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (next_order_number, user_id, user_type, message, group_name, group_id))
-    
-    # Faqat oxirgi 50 ta zakazni saqlash
-    cursor.execute('''
-        DELETE FROM zakazlar WHERE id NOT IN (
-            SELECT id FROM zakazlar ORDER BY sana DESC LIMIT 50
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    
-    return next_order_number
+
+def save_zakaz(user_id, user_name, username, phone, user_type, message, group_name, group_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''INSERT OR REPLACE INTO users
+            (user_id, user_name, username, phone, first_seen, last_seen) VALUES
+            (?, ?, ?, ?, COALESCE((SELECT first_seen FROM users WHERE user_id=?), CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)''',
+            (user_id, user_name, username, phone, user_id))
+        cursor.execute('SELECT COALESCE(MAX(order_number),0)+1 FROM zakazlar')
+        num = cursor.fetchone()[0]
+        cursor.execute('''INSERT INTO zakazlar (order_number, user_id, user_type, message, group_name, group_id)
+            VALUES (?,?,?,?,?,?)''', (num, user_id, user_type, message, group_name, group_id))
+        cursor.execute('''DELETE FROM zakazlar WHERE id NOT IN
+            (SELECT id FROM zakazlar ORDER BY sana DESC LIMIT 50)''')
+        conn.commit()
+        return num
+
 
 def is_fast_message(text):
-    """60 belgidan kam, emoji/stiker yo'q matnlarni tekshirish"""
     if not text or len(text) >= 60:
         return False
-    emoji_pattern = re.compile(
-        u"[\U0001F300-\U0001FFFF"
-        u"\U00002600-\U000027BF"
-        u"\U0001F900-\U0001F9FF"
-        u"\u2600-\u26FF\u2700-\u27BF]+",
-        re.UNICODE
-    )
-    return not emoji_pattern.search(text)
+    return not re.search(
+        u"[\U0001F300-\U0001FFFF\U00002600-\U000027BF\U0001F900-\U0001F9FF\u2600-\u26FF\u2700-\u27BF]+",
+        text)
 
 
-    if not text or not isinstance(text, str):
-        return '🙋♂️ Yolovchi'
-    
-    keywords = load_keywords_from_db()
-    text_lower = text.lower().strip()
-    
-    # Haydovchi so'zlarini tekshirish
-    for word in keywords['driver']:
-        if word.lower() in text_lower:
-            return '🚗 Haydovchi'
-    
-    # Yo'lovchi so'zlarini tekshirish
-    for word in keywords['passenger']:
-        if word.lower() in text_lower:
-            return '🙋♂️ Yolovchi'
-    
-    return '🙋♂️ Yolovchi'
-
-@client.on(events.ChatAction)
-async def chat_action_handler(event):
-    me = await client.get_me()
-    
-    # Buyurtma guruhini bundan tashqari qilish
-    if event.chat_id == ORDER_GROUP_ID:
-        return
-    
-    # Agar akaunt guruhdan chiqsa yoki chiqarib yuborilsa – ro'yxatdan o'chiramiz
-    if event.user_left or event.user_kicked:
-        if event.user_id == me.id and event.chat_id in monitored_groups:
-            monitored_groups.remove(event.chat_id)
-            save_groups(monitored_groups)
-            print(f"❌ Guruh kuzatuvdan olindi: {event.chat_id}")
-    
-    # Agar akaunt yangi guruhga qo'shilsa – avtomatik qo'shamiz
-    if event.user_joined or event.user_added:
-        if event.user_id == me.id and event.chat_id not in monitored_groups:
-            monitored_groups.append(event.chat_id)
-            save_groups(monitored_groups)
-            print(f"✅ Yangi guruh kuzatuvga qo'shildi: {event.chat_id}")
-
-@client.on(events.NewMessage(incoming=True))
-async def handler(event):
-    # Tizim xabarlarini (yangi a'zo qo'shildi va h.k.) ignore qilish
-    if event.action is not None:
-        return
-    # Guruh va lichkadan kelgan xabarlarni qabul qilish
-    is_private = event.is_private
-    is_source_group = event.is_group and event.chat_id == SOURCE_GROUP_ID
-    is_monitored_group = event.is_group and event.chat_id in monitored_groups
-    
-    # BUYURTMA GURUHINI BUNDAN TASHQARI QILISH - xabarlarni kuzatmasin va zakazni yubormasin
-    if event.is_group and event.chat_id == ORDER_GROUP_ID:
-        return
-    
-    # Faqat lichka, SOURCE_GROUP_ID yoki /add_group bilan qo'shilgan guruhlar
-    if not (is_private or is_source_group or is_monitored_group):
-        return
-    
-    # O'z xabarlarini va bot xabarlarini ignore qilish
-    me = await client.get_me()
-    bot_id = int(BOT_TOKEN.split(':')[0])  # Bot ID ni olish
-    
-    if event.sender_id == me.id:
-        return
-        
-    if event.sender_id == bot_id:
-        return
-    
-    # BARCHA BOTLARNI IGNORE QILISH - sender bot bo'lsa
-    sender = None
+async def auto_discover_groups(client):
+    monitored = set(load_groups())
     try:
-        sender = await event.get_sender()
-        if sender and getattr(sender, 'is_bot', False):
-            logger.debug(f"Bot xabari ignore qilindi: {sender.username or sender.id}")
+        async for dialog in client.iter_dialogs():
+            e = dialog.entity
+            gid = None
+            if isinstance(e, Channel) and getattr(e, 'megagroup', False):
+                gid = int(f"-100{e.id}") if e.id > 0 else e.id
+            elif isinstance(e, Chat) and not getattr(e, 'broadcast', False):
+                gid = -e.id if e.id > 0 else e.id
+            if gid and gid != ORDER_GROUP_ID and gid < 0:
+                monitored.add(gid)
+    except Exception as ex:
+        logger.error(f"Guruh topishda xatolik: {ex}")
+    save_groups(list(monitored))
+    logger.info(f"Guruhlar yangilandi: {len(monitored)} ta")
+
+
+async def send_to_groups(text, buttons, base_text):
+    payload = {
+        "chat_id": ORDER_GROUP_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": {"inline_keyboard": buttons} if buttons else None
+    }
+    async with aiohttp.ClientSession() as s:
+        r = await s.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
+        if r.status != 200:
+            logger.error(f"Xatolik: {r.status} - {await r.text()}")
+
+    if FAST_GROUP_ID and is_fast_message(base_text):
+        fast = {**payload, "chat_id": FAST_GROUP_ID}
+        async with aiohttp.ClientSession() as s:
+            await s.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=fast)
+
+
+def attach_handlers(client):
+    @client.on(events.NewMessage(incoming=True))
+    async def on_message(event):
+        if event.action is not None:
             return
-    except Exception as e:
-        logger.debug(f"Sender olishda xatolik (1-urinish): {e}")
-        sender = None
-    
-    # Agar sender olish xatolik bersa, qayta urinish
-    if sender is None:
+        if not event.is_group and not event.is_private:
+            return
+        if event.is_group and event.chat_id == ORDER_GROUP_ID:
+            return
+        if event.is_group and event.chat_id not in load_groups():
+            return
+        if event.message.fwd_from:
+            return
+
+        me = await client.get_me()
+        bot_id = int(BOT_TOKEN.split(':')[0])
+        if event.sender_id in (me.id, bot_id):
+            return
+
         try:
             sender = await event.get_sender()
-            print(f"🔍 Sender qayta olindi: {sender}")
-        except Exception as e:
-            logger.debug(f"Sender olishda xatolik (2-urinish): {e}")
+        except:
             sender = None
-    
-    # Faqat avtomatik kuzatuv uchun: agar xabar SOURCE_GROUP_ID dan kelsa,
-    # shu guruh ham groups.json ga tushib qolsin
-    if is_source_group and event.chat_id not in monitored_groups:
-        monitored_groups.append(event.chat_id)
-        save_groups(monitored_groups)
-    
-    text_content = event.text or ""
-    
-    # Bo'sh xabar tekshiruvi
-    if not text_content:
-        return
-    
-    # Xabardagi real zakaz matnini ajratib olish (oxirgi bo'sh bo'lmagan qator)
-    lines = [l.strip() for l in text_content.splitlines() if l.strip()]
-    if not lines:
-        return
-    base_text = lines[-1]
-    
-    # Sender va chat ma'lumotlarini xavfsiz olish
-    chat = None
-    
-    try:
-        chat = await event.get_chat()
-    except:
-        pass  # Chat ma'lumotini ololmasak ham davom etamiz
-    
-    try:
-        chat = await event.get_chat()
-    except:
-        pass  # Chat ma'lumotini ololmasak ham davom etamiz
-    
-    # Forward xabarlarni ignore qilish
-    if event.message.fwd_from:
-        return
-    
-    # Foydalanuvchi ma'lumotlari
-    user_details_parts = []
-    user_info = "Foydalanuvchi"
-    user_id = 0
-    
-    # Oddiy xabar
-    if sender:
+
+        if sender and getattr(sender, 'is_bot', False):
+            return
+
+        text = event.text or ""
+        if not text.strip():
+            return
+
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        base = lines[-1] if lines else text
+
+        kw = load_keywords()
+        tl = base.lower()
+        if any(w.lower() in tl for w in kw['driver']):
+            return
+        if not any(w.lower() in tl for w in kw['passenger']):
+            return
+
+        uid = sender.id if sender else 0
+        uname = ""
+        username = ""
+        phone = ""
+        user_link = "Foydalanuvchi"
+
+        if sender:
+            uname = (sender.first_name or "").strip()
+            if getattr(sender, 'last_name', None):
+                uname += f" {sender.last_name}"
+            username = getattr(sender, 'username', '') or ''
+            phone = getattr(sender, 'phone', '') or ''
+            user_link = f"<a href='tg://user?id={uid}'>{uname or 'Nomaʼlum'}</a>"
+
+        chat = None
         try:
-            # O'z va bot xabarlarini ignore qilish (qo'shimcha tekshiruv)
-            if sender.id == me.id:
-                return
-                
-            if sender.id == bot_id:
-                return
-            
-            # Bot bo'lsa ignore qilish
-            if getattr(sender, 'is_bot', False):
-                logger.debug(f"Bot xabari ignore qilindi: {sender.username or sender.id}")
-                return
-                
-            user_id = sender.id
-            print(f"✅ User ID olindi: {user_id}")
-            user_name = f"{sender.first_name or 'Nomaʼlum'}"
-            if hasattr(sender, 'last_name') and sender.last_name:
-                user_name = f"{sender.first_name} {sender.last_name}"
-            user_info = f"<a href='tg://user?id={sender.id}'>{user_name}</a>"
-            
-            # ID ni qo'shmaslik
-            if hasattr(sender, 'username') and sender.username:
-                user_details_parts.append(f"🤙 @{sender.username}")
-            if hasattr(sender, 'phone') and sender.phone:
-                user_details_parts.append(f"\n☎️ +{sender.phone}")
-        except Exception as e:
-            logger.error(f"Sender ma'lumotini olishda xatolik: {e}")
-            print(f"❌ Sender ma'lumotini olishda xatolik: {e}")
-            user_info = "Noma'lum foydalanuvchi"
-            user_id = 0
-    # Sender yo'q bo'lsa
-    else:
-        print(f"⚠️  Sender yo'q (None)")
-        user_info = "Noma'lum foydalanuvchi"
-        user_id = 0
-        sender = None
-    
-    user_details = "\n".join(user_details_parts) if user_details_parts else ""
-    
-    # Xabar va guruh havolalarini xavfsiz yaratish
-    message_link = "#"
-    group_link = "#"
-    group_info = "🫂 Guruh"
-    
-    if chat:
-        try:
-            if str(chat.id).startswith('-100'):
-                chat_id_str = str(chat.id)[4:]
-                message_link = f"https://t.me/c/{chat_id_str}/{event.id}"
-            else:
-                message_link = f"https://t.me/{chat.username}/{event.id}" if hasattr(chat, 'username') and chat.username else "#"
-            
-                    # Guruh nomini oddiy matn sifatida
-            group_info = f"🫂 {chat.title}" if hasattr(chat, 'title') and chat.title else "🫂 Guruh"
+            chat = await event.get_chat()
         except:
             pass
-    
-    # Telefon raqam qidirish (butun xabar bo'yicha)
-    phone_patterns = [
-        r'\+998\d{9}',
-        r'998\d{9}',
-        r'\d{9}',
-        r'\d{2}\s\d{3}\s\d{2}\s\d{2}',
-        r'\d{2}-\d{3}-\d{2}-\d{2}',
-    ]
-    phones = []
-    
-    for pattern in phone_patterns:
-        found = re.findall(pattern, text_content)
-        phones.extend(found)
+
+        chat_title = getattr(chat, 'title', 'Guruh') or 'Guruh'
+        blocked = is_user_blocked(uid)
+        save_zakaz(uid, uname.strip(), username, phone, '🙋♂️ Yolovchi', text, chat_title, event.chat_id)
+
+        if blocked:
+            try:
+                await event.delete()
+            except:
+                pass
+            return
+
+        # Kontakt qatori
+        details = []
+        if username:
+            details.append(f"🤙 @{username}")
+        if phone:
+            details.append(f"☎️ +{phone}")
+
+        # Telefon raqam xabardan
+        phones = []
+        for pat in [r'\+998\d{9}', r'998\d{9}', r'0\d{9}']:
+            phones = re.findall(pat, text)
+            if phones:
+                break
+
+        # Havola
+        msg_link = "#"
+        grp_url = None
+        if chat:
+            cid = str(chat.id)
+            if cid.startswith('-100'):
+                num = cid[4:]
+                msg_link = f"https://t.me/c/{num}/{event.id}"
+                grp_url = f"https://t.me/c/{num}"
+            elif getattr(chat, 'username', None):
+                msg_link = f"https://t.me/{chat.username}/{event.id}"
+                grp_url = f"https://t.me/{chat.username}"
+
+        parts = [f"👤 {user_link}", f"💬 {base.strip()}"]
+        if details:
+            parts.append("\n".join(details))
+        msg_text = "\n\n".join(parts)
+
+        buttons = []
+        row1 = []
+        if msg_link != "#":
+            row1.append({"text": "💬 Xabar", "url": msg_link})
+        if grp_url:
+            row1.append({"text": f"🫂 {chat_title[:20]}", "url": grp_url})
+        if row1:
+            buttons.append(row1)
+
+        ph = None
         if phones:
-            break
-    
-    # Haydovchi yoki yo'lovchi so'zlari bor xabarlarni olish
-    keywords = load_keywords_from_db()
-    text_lower = base_text.lower().strip()
-    
-    # Haydovchi so'zlarini tekshirish
-    has_driver_words = False
-    for word in keywords['driver']:
-        if word.lower() in text_lower:
-            has_driver_words = True
-            break
-    
-    # Yo'lovchi so'zlarini tekshirish
-    has_passenger_words = False
-    for word in keywords['passenger']:
-        if word.lower() in text_lower:
-            has_passenger_words = True
-            break
-    
-    # Agar haydovchi so'zlari bo'lsa, xabarni ignore qilish
-    if has_driver_words:
-        return
-    
-    # Agar yo'lovchi so'zlari yo'q bo'lsa, xabarni ignore qilish
-    if not has_passenger_words:
-        return
-    
-    user_type = '🙋♂️ Yolovchi'
-    
-    # Bloklangan foydalanuvchini tekshirish - zakazni bazaga saqlash lekin guruhga yubormaslik
-    is_blocked = is_user_blocked(user_id)
-    
-    # Foydalanuvchi ma'lumotlarini ajratish
-    clean_user_name = ''
-    username = ''
-    phone = ''
-    
-    if sender:
-        clean_user_name = f"{sender.first_name or ''}"
-        if hasattr(sender, 'last_name') and sender.last_name:
-            clean_user_name += f" {sender.last_name}"
-        if hasattr(sender, 'username') and sender.username:
-            username = sender.username
-        if hasattr(sender, 'phone') and sender.phone:
-            phone = sender.phone
-    
-    chat_title = 'Nomaʼlum guruh'
-    if chat and hasattr(chat, 'title') and chat.title:
-        chat_title = chat.title
-    
-    # Haydovchi va yo'lovchilarni bazaga saqlash (bloklangan bo'lsa ham)
-    order_number = save_user_and_zakaz(user_id, clean_user_name.strip(), username, phone, user_type, text_content, chat_title, event.chat_id)
-    
-# Agar bloklangan bo'lsa, guruhga yubormaslik va xabarni o'chirish
-    if is_blocked:
-        try:
-            await event.delete()
-            logger.info(f"Bloklangan foydalanuvchi xabari ochirildi: {user_id}")
-        except Exception as e:
-            logger.error(f"Bloklangan foydalanuvchi xabarini ochirishda xatolik: {e}")
-        return
-    
+            p = phones[0].replace(' ', '').replace('-', '')
+            ph = ('+' + p) if p.startswith('998') else ('+998' + p if not p.startswith('+') else p)
+        elif phone:
+            ph = f"+{phone}"
+        if ph:
+            buttons.append([{"text": f"📞 {ph}", "url": f"https://onmap.uz/tel/{ph}"}])
 
-    
-    # Xabar tayyorlash - sodda format
-    message_parts = []
-    
-    # Foydalanuvchi ismi - emoji bilan
-    if user_info:
-        message_parts.append(f"👤 {user_info}")
-    
-    # Xabar matni - emoji bilan (faqat xabar bo'lsa)
-    if base_text.strip():
-        message_parts.append(f"💬 {base_text.strip()}")
-    
-    # Kontakt ma'lumotlari - emoji bilan (faqat xabar bo'lsa)
-    if base_text.strip() and user_details.strip():
-        message_parts.append(f"{user_details.strip()}")
-    
-    message = "\n\n".join(message_parts)
-    
-    # Tugmalar yaratish - faqat mavjud ma'lumotlar uchun
-    buttons = []
-    
-    # Birinchi qator - xabar va guruh tugmalari
-    first_row = []
-    if message_link != "#":
-        first_row.append({"text": "💬 Xabar", "url": message_link})
-    
-    # Guruh tugmasi qo'shish
-    if chat and hasattr(chat, 'title') and chat.title:
-        if hasattr(chat, 'username') and chat.username:
-            group_url = f"https://t.me/{chat.username}"
-        elif str(chat.id).startswith('-100'):
-            chat_id_str = str(chat.id)[4:]
-            group_url = f"https://t.me/c/{chat_id_str}"
-        else:
-            group_url = None
-            
-        if group_url:
-            first_row.append({"text": "🫂 Guruh", "url": group_url})
-    
-    if first_row:
-        buttons.append(first_row)
-    
-    # Ikkinchi qator - faqat mavjud kontakt ma'lumotlari
-    second_row = []
-    
-    # Xabar ichidagi telefon raqam
-    if phones:
-        phone = phones[0].replace(' ', '').replace('-', '')
-        if phone.startswith('998'):
-            phone = '+' + phone
-        elif not phone.startswith('+998'):
-            phone = '+998' + phone
-        second_row.append({"text": f"📞 {phone}", "url": f"https://onmap.uz/tel/{phone}"})
-    
-    # Foydalanuvchining telefon raqami
-    elif sender and hasattr(sender, 'phone') and sender.phone:
-        second_row.append({"text": f"📞 +{sender.phone}", "url": f"https://onmap.uz/tel/+{sender.phone}"})
+        if uid:
+            buttons.append([{"text": "✍️ Mijozga yozish", "callback_data": f"reply_user_{uid}"}])
+            buttons.append([{"text": "🚫 Bloklash", "callback_data": f"block_{uid}"}])
 
-    
-    if second_row:
-        buttons.append(second_row)
+        await send_to_groups(msg_text, buttons, base)
 
-    # Faqat admin tugmalari: mijozga yozish va bloklash
-    if user_id:
-        buttons.append([
-            {"text": "✍️ Mijozga yozish", "callback_data": f"reply_user_{user_id}"}
-        ])
-        buttons.append([
-            {"text": "🚫 Bloklash", "callback_data": f"block_{user_id}"}
-        ])
+    @client.on(events.ChatAction)
+    async def on_action(event):
+        if event.chat_id == ORDER_GROUP_ID:
+            return
+        me = await client.get_me()
+        groups = load_groups()
+        if (event.user_left or event.user_kicked) and event.user_id == me.id:
+            if event.chat_id in groups:
+                groups.remove(event.chat_id)
+                save_groups(groups)
+        if (event.user_joined or event.user_added) and event.user_id == me.id:
+            if event.chat_id not in groups:
+                groups.append(event.chat_id)
+                save_groups(groups)
 
-    try:
-        # Asosiy buyurtma guruhiga yuborish - FAQAT BUYURTMA GURUHIGA
-        payload = {
-            "chat_id": ORDER_GROUP_ID,
-            "text": message,
-            "parse_mode": "HTML",
-            "reply_markup": {"inline_keyboard": buttons} if buttons else None
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            response = await session.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json=payload
-            )
-            if response.status == 200:
-                print("✅ Asosiy buyurtma guruhiga yuborildi")
-            else:
-                error_text = await response.text()
-                print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
-                logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
 
-        # Fast guruhga yuborish - 60 belgidan kam, emoji yo'q xabarlar
-        if FAST_GROUP_ID and is_fast_message(base_text):
-            fast_payload = {
-                "chat_id": FAST_GROUP_ID,
-                "text": message,
-                "parse_mode": "HTML",
-                "reply_markup": {"inline_keyboard": buttons} if buttons else None
-            }
-            async with aiohttp.ClientSession() as session:
-                resp = await session.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json=fast_payload
-                )
-                if resp.status == 200:
-                    print("⚡ Fast guruhga yuborildi")
-                else:
-                    err = await resp.text()
-                    logger.error(f"Fast guruhga yuborishda xatolik: {resp.status} - {err}")
-        
-        # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
-        pass
+async def start_client(phone):
+    session = f"session_{phone.replace('+', '')}"
+    client = TelegramClient(session, API_ID, API_HASH)
+    await client.connect()
 
-            
-    except Exception as e:
-        logger.error(f"Zakaz yuborishda umumiy xatolik: {e}")
-        print(f"❌ Zakaz yuborishda umumiy xatolik: {e}")
+    if not await client.is_user_authorized():
+        logger.warning(f"❌ Session yo'q: {phone} — bot orqali ulang")
+        await client.disconnect()
+        return None
+
+    me = await client.get_me()
+    logger.info(f"✅ Ulandi: {me.first_name} ({phone})")
+    attach_handlers(client)
+    await auto_discover_groups(client)
+    return client
+
 
 async def main():
-    print("\n" + "="*60)
-    print("🤖 USERBOT ISHGA TUSHMOQDA...")
-    print("="*60)
-    
-    print("💾 Ma'lumotlar bazasini tekshirish...")
+    print("=" * 50)
+    print("🤖 MULTI-ACCOUNT USERBOT ISHGA TUSHMOQDA")
+    print("=" * 50)
     init_database()
-    print("✅ Ma'lumotlar bazasi tayyor")
-    
-    try:
-        await client.connect()
-        
-        if not await client.is_user_authorized():
-            logger.warning(f"Session mavjud emas. Bot orqali akaunt qo'shing.")
-            await client.disconnect()
-            return
-        
-        # Guruhlarni avtomatik yuklab olish
-        await auto_discover_groups()
-        
-        print("🔑 Kalit so'zlarni yuklash...")
-        
-        # Bazaga default so'zlarini qo'shish
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Yo'lovchi so'zlari
-                cursor.execute('SELECT COUNT(*) FROM keywords WHERE type = ?', ('passenger',))
-                passenger_count = cursor.fetchone()[0]
-                
-                if passenger_count == 0:
-                    default_passenger_words = ["kerak", "ketish kerak", "olib keting", "yo'lovchi kerak", "borish kerak", "ketmoqchiman"]
-                    for word in default_passenger_words:
-                        cursor.execute('INSERT OR IGNORE INTO keywords (type, word) VALUES (?, ?)', ('passenger', word))
-                    conn.commit()
-                    print("✅ Default yo'lovchi so'zlari qo'shildi")
-                
-                # Haydovchi so'zlari
-                cursor.execute('SELECT COUNT(*) FROM keywords WHERE type = ?', ('driver',))
-                driver_count = cursor.fetchone()[0]
-                
-                if driver_count == 0:
-                    default_driver_words = ["ketaman", "boraman", "olib ketaman", "haydovchiman", "mashina bor", "taksi"]
-                    for word in default_driver_words:
-                        cursor.execute('INSERT OR IGNORE INTO keywords (type, word) VALUES (?, ?)', ('driver', word))
-                    conn.commit()
-                    print("✅ Default haydovchi so'zlari qo'shildi")
-        except Exception as e:
-            logger.error(f"Default so'zlar qo'shishda xatolik: {e}")
-        
-        global keywords
-        keywords = load_keywords_from_db()
-        print(f"✅ Yuklandi: {len(keywords['passenger'])} yo'lovchi so'zi, {len(keywords['driver'])} haydovchi so'zi")
-        
-        print("📊 Statistikani hisoblash...")
-        # Bazadagi statistikani ko'rsatish
-        conn = sqlite3.connect('zakazlar.db')
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT COUNT(*) FROM zakazlar WHERE user_type LIKE '%Yolovchi%'")
-        passengers_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM zakazlar WHERE user_type LIKE '%Haydovchi%'")
-        drivers_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(DISTINCT user_id) FROM users")
-        unique_users = cursor.fetchone()[0]
-        
-        conn.close()
-        
-        print("\n" + "="*60)
-        print("✅ USERBOT MUVAFFAQIYATLI ISHGA TUSHDI!")
-        print("="*60)
-        print(f"📊 Kuzatilayotgan guruhlar: {len(monitored_groups)}")
-        print(f"🙋♂️ Yolovchi zakazlari: {passengers_count}")
-        print(f"🚗 Haydovchi zakazlari: {drivers_count}")
-        print(f"👥 Jami foydalanuvchilar: {unique_users}")
-        print(f"📤 Buyurtma guruhi: {ORDER_GROUP_ID}")
-        print("="*60)
-        print("🔍 Xabarlarni kutish...\n")
-        
-        # Buyruqlar
-        @client.on(events.NewMessage(pattern=r'/block (\d+)'))
-        async def block_user_cmd(event):
-            if event.is_private:
-                user_id = int(event.pattern_match.group(1))
-                block_user(user_id)
-                await event.reply(f"🚫 Foydalanuvchi bloklandi: {user_id}")
-        
-        @client.on(events.NewMessage(pattern=r'/unblock (\d+)'))
-        async def unblock_user_cmd(event):
-            if event.is_private:
-                user_id = int(event.pattern_match.group(1))
-                unblock_user(user_id)
-                await event.reply(f"✅ Foydalanuvchi blokdan chiqarildi: {user_id}")
-        
-        @client.on(events.NewMessage(pattern='/blocked'))
-        async def list_blocked(event):
-            if event.is_private:
-                conn = sqlite3.connect('zakazlar.db')
-                cursor = conn.cursor()
-                cursor.execute('SELECT user_id FROM blocked_users')
-                blocked = [str(row[0]) for row in cursor.fetchall()]
-                conn.close()
-                
-                if blocked:
-                    await event.reply(f"🚫 Bloklangan foydalanuvchilar:\n" + "\n".join(blocked))
-                else:
-                    await event.reply("📭 Bloklangan foydalanuvchi yo'q")
-        
-        @client.on(events.NewMessage(pattern=r'/add_group (-?\d+)'))
-        async def add_group(event):
-            if event.is_private:
-                group_id = int(event.pattern_match.group(1))
-                if group_id not in monitored_groups:
-                    monitored_groups.append(group_id)
-                    save_groups(monitored_groups)
-                    await event.reply(f"✅ Guruh qo'shildi: {group_id}")
-                else:
-                    await event.reply(f"⚠️ Guruh allaqachon mavjud: {group_id}")
-        
-        @client.on(events.NewMessage(pattern=r'/remove_group (-?\d+)'))
-        async def remove_group_by_id(event):
-            if event.is_private:
-                group_id = int(event.pattern_match.group(1))
-                if group_id in monitored_groups:
-                    monitored_groups.remove(group_id)
-                    save_groups(monitored_groups)
-                    await event.reply(f"❌ Guruh o'chirildi: {group_id}")
-                else:
-                    await event.reply(f"⚠️ Guruh topilmadi: {group_id}")
-        
-        @client.on(events.NewMessage(pattern='/groups'))
-        async def list_groups(event):
-            if event.is_private:
-                if monitored_groups:
-                    groups_info = []
-                    for group_id in monitored_groups:
-                        try:
-                            chat = await client.get_entity(group_id)
-                            groups_info.append(f"• {chat.title} ({group_id})")
-                        except:
-                            groups_info.append(f"• ID: {group_id}")
-                    await event.reply(f"📋 Kuzatilayotgan guruhlar:\n" + "\n".join(groups_info))
-                else:
-                    await event.reply("📭 Hech qanday guruh kuzatilmayapti")
-        
-        @client.on(events.NewMessage(pattern=r'/make_admin (-?\d+)'))
-        async def make_admin(event):
-            if event.is_private:
-                group_id = int(event.pattern_match.group(1))
-                try:
-                    await client.edit_admin(group_id, await client.get_me(), is_admin=True)
-                    await event.reply(f"👑 Admin qilindi: {group_id}")
-                except Exception as e:
-                    await event.reply(f"❌ Admin qilishda xatolik: {e}")
-        
-        @client.on(events.NewMessage(pattern='/help'))
-        async def help_cmd(event):
-            if event.is_private:
-                help_text = """🤖 Bot buyruqlari:
 
-👥 Guruh boshqaruvi:
-/add_group -1001234567890 - Guruh qo'shish
-/remove_group -1001234567890 - Guruh o'chirish
-/groups - Guruhlar ro'yxati
-/make_admin -1001234567890 - Admin qilish
+    accounts = load_accounts()
+    if not accounts:
+        print("⚠️  Akaunt yo'q. Bot orqali qo'shing: 👤 Akauntlar → ➕")
+        await asyncio.sleep(float('inf'))
+        return
 
-🚫 Bloklash:
-/block 123456789 - Foydalanuvchini bloklash
-/unblock 123456789 - Blokdan chiqarish
-/blocked - Bloklangan foydalanuvchilar
+    clients = []
+    for acc in accounts:
+        phone = acc.get('phone')
+        if phone:
+            c = await start_client(phone)
+            if c:
+                clients.append(c)
 
-📋 Boshqa:
-/help - Yordam"""
-                await event.reply(help_text)
-        
-        await client.run_until_disconnected()
-        
-    except Exception as e:
-        logger.critical(f"KRITIK XATOLIK: {e}")
-        print(f"\n❌ KRITIK XATOLIK: {e}")
-        print("Bot to'xtatildi!\n")
+    if not clients:
+        print("⚠️  Hech qanday faol akaunt topilmadi. Bot orqali qayta ulang.")
+        await asyncio.sleep(float('inf'))
+        return
+
+    print(f"✅ {len(clients)} ta akaunt ishga tushdi")
+    await asyncio.gather(*[c.run_until_disconnected() for c in clients])
+
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n🛑 Bot to'xtatildi")
+        print("\n🛑 To'xtatildi")
