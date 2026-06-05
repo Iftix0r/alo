@@ -1158,7 +1158,7 @@ async def handle_text_message(message: types.Message):
                         reply_markup=main_menu()
                     )
                 else:
-                    sent = await client.send_code_request(phone)
+                    sent = await client.send_code_request(phone, force_sms=True)
                     pending_auth[user_id] = {
                         'step': 'waiting_code',
                         'phone': phone,
@@ -1166,7 +1166,8 @@ async def handle_text_message(message: types.Message):
                         'phone_code_hash': sent.phone_code_hash
                     }
                     await message.answer(
-                        f"📲 {phone} raqamiga SMS kod yuborildi\n\n"
+                        f"📲 {phone} raqamiga kod yuborildi\n\n"
+                        "⚠️ Kod Telegram ilovasiga yoki SMS orqali keladi\n"
                         "Telegram kodini kiriting:"
                     )
             except PhoneNumberInvalidError:
