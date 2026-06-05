@@ -65,20 +65,69 @@ def save_accounts(accounts):
     with open('accounts.json', 'w') as f:
         json.dump(accounts, f, indent=2)
 
-async def send_userbot_message(user_id: int, text: str):
-    # Avval userbot session fayli orqali urinish
+async def _try_send_with_client(client: TelegramClient, user_id: int, text: str) -> bool:
+    """Berilgan client orqali user_id, username yoki telefon bilan xabar yuboradi"""
+    try:
+        # 1. To'g'ridan-to'g'ri user_id orqali
+        await client.send_message(entity=user_id, message=text)
+        logger.info(f"Xabar yuborildi (user_id={user_id})")
+        return True
+    except Exception as e1:
+        logger.warning(f"user_id={user_id} orqali yuborib bo'lmadi: {e1}")
+
+    # 2. Bazadan username va telefon olish
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT username, phone FROM users WHERE user_id = ?', (user_id,))
+            row = cursor.fetchone()
+    except Exception:
+        row = None
+
+    if row:
+        username, phone = row
+
+        # 3. Username orqali
+        if username:
+            try:
+                await client.send_message(entity=f"@{username.lstrip('@')}", message=text)
+                logger.info(f"Xabar yuborildi (@{username})")
+                return True
+            except Exception as e2:
+                logger.warning(f"@{username} orqali yuborib bo'lmadi: {e2}")
+
+        # 4. Telefon raqam orqali
+        if phone:
+            try:
+                formatted = phone.strip()
+                if not formatted.startswith('+'):
+                    formatted = '+' + formatted
+                await client.send_message(entity=formatted, message=text)
+                logger.info(f"Xabar yuborildi (tel={formatted})")
+                return True
+            except Exception as e3:
+                logger.warning(f"Tel={phone} orqali yuborib bo'lmadi: {e3}")
+
+    return False
+
+
+async def send_userbot_message(user_id: int, text: str) -> bool:
+    # 1. Asosiy userbot session
     try:
         client = TelegramClient('userbot', API_ID, API_HASH)
         await client.connect()
         if await client.is_user_authorized():
-            await client.send_message(entity=user_id, message=text)
+            result = await _try_send_with_client(client, user_id, text)
             await client.disconnect()
-            return True
+            if result:
+                return True
+        else:
+            logger.error("userbot session avtorizatsiya qilinmagan!")
         await client.disconnect()
     except Exception as e:
-        logger.error(f"Userbot session orqali xabar yuborishda xatolik: {e}")
+        logger.error(f"userbot session xatolik: {e}")
 
-    # Fallback: accounts.json dagi akkauntlar
+    # 2. accounts.json dagi akkauntlar
     for acc in load_accounts():
         phone = acc.get('phone', '')
         session = f"session_{phone.replace('+', '')}"
@@ -86,12 +135,15 @@ async def send_userbot_message(user_id: int, text: str):
             client = TelegramClient(session, API_ID, API_HASH)
             await client.connect()
             if await client.is_user_authorized():
-                await client.send_message(entity=user_id, message=text)
+                result = await _try_send_with_client(client, user_id, text)
                 await client.disconnect()
-                return True
+                if result:
+                    return True
             await client.disconnect()
         except Exception as e:
-            logger.error(f"Xabar yuborishda xatolik ({phone}): {e}")
+            logger.error(f"accounts.json ({phone}) xatolik: {e}")
+
+    logger.error(f"user_id={user_id} ga xabar yuborib bo'lmadi (barcha urinishlar muvaffaqiyatsiz)")
     return False
 
 # Ma'lumotlar bazasini ishga tushirish
