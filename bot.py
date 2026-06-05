@@ -5,7 +5,8 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 import sqlite3
 import os
 from dotenv import load_dotenv
-from telethon import TelegramClient, errors
+from telethon import TelegramClient
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError
 
 import re
 import json
@@ -48,16 +49,48 @@ API_ID = int(os.getenv('API_ID', '0'))
 API_HASH = os.getenv('API_HASH')
 ADMIN_IDS = [int(x.strip()) for x in os.getenv('ADMIN_IDS', '0').split(',')]
 
-userbot_client = TelegramClient('userbot', API_ID, API_HASH)
+pending_auth = {}  # admin_id -> {step, phone, client, phone_code_hash}
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-async def ensure_userbot_connected():
+def load_accounts():
     try:
-        if not userbot_client.is_connected():
-            await userbot_client.connect()
-    except Exception as e:
+        with open('accounts.json', 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_accounts(accounts):
+    with open('accounts.json', 'w') as f:
+        json.dump(accounts, f, indent=2)
+
+async def send_userbot_message(user_id: int, text: str):
+    for acc in load_accounts():
+        phone = acc.get('phone', '')
+        session = f"session_{phone.replace('+', '')}"
+        try:
+            client = TelegramClient(session, API_ID, API_HASH)
+            await client.connect()
+            if await client.is_user_authorized():
+                await client.send_message(entity=user_id, message=text)
+                await client.disconnect()
+                return True
+            await client.disconnect()
+        except Exception as e:
+            logger.error(f"Xabar yuborishda xatolik ({phone}): {e}")
+    return False
+
+async def ensure_userbot_connected():
+    # eski kod uchun placeholder
+    pass
+
+async def _old_send_noop():
+    # eski kod uchun placeholder
+    pass
+
+async def _old_code_placeholder():
+    if False:
         logger.error(f"Userbot ulanishida xatolik: {e}")
         raise
 
@@ -154,11 +187,23 @@ def main_menu():
             [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="🔍 Qidiruv")],
             [KeyboardButton(text="📝 So'zlar qo'shish"), KeyboardButton(text="⚙️ Sozlamalar")],
             [KeyboardButton(text="📋 Guruh statistikasi"), KeyboardButton(text="🕜 Oxirgi 10 ta zakaz")],
-            [KeyboardButton(text="👥 Kuzatilayotgan guruhlar")]
+            [KeyboardButton(text="👥 Kuzatilayotgan guruhlar"), KeyboardButton(text="👤 Akauntlar")]
         ],
         resize_keyboard=True
     )
     return keyboard
+
+def accounts_menu():
+    accounts = load_accounts()
+    buttons = []
+    for acc in accounts:
+        phone = acc.get('phone', '')
+        name = acc.get('name', '')
+        label = f"🗑️ {name} ({phone})" if name else f"🗑️ {phone}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"del_account_{phone}")])
+    buttons.append([InlineKeyboardButton(text="➕ Yangi akaunt qo'shish", callback_data="add_account")])
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # So'z qo'shish menu
 def words_menu():
