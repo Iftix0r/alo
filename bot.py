@@ -1131,11 +1131,119 @@ async def search_handler(message: types.Message):
     user_states[message.from_user.id] = 'waiting_search_query'
     await message.answer("🔍 Qidiruv uchun:\n\n👤 Foydalanuvchi ismini yoki\n🆔 Chat ID raqamini yozing:")
 
-@dp.message(lambda message: message.text and not message.text.startswith('/') and not message.text in ["📊 Statistika", "📝 So'zlar qo'shish", "⚙️ Sozlamalar", "🔍 Qidiruv", "🕜 Oxirgi 10 ta zakaz", "📋 Guruh statistikasi"])
+@dp.message(lambda message: message.text and not message.text.startswith('/') and not message.text in ["📊 Statistika", "📝 So'zlar qo'shish", "⚙️ Sozlamalar", "🔍 Qidiruv", "🕜 Oxirgi 10 ta zakaz", "📋 Guruh statistikasi", "👤 Akauntlar", "👥 Kuzatilayotgan guruhlar"])
 async def handle_text_message(message: types.Message):
     user_id = message.from_user.id
+
+    # === AKAUNT ULASH JARAYONI ===
+    if user_id in pending_auth:
+        step = pending_auth[user_id].get('step')
+
+        if step == 'waiting_phone':
+            phone = message.text.strip()
+            if not phone.startswith('+'):
+                phone = '+' + phone
+            session_name = f"session_{phone.replace('+', '')}"
+            client = TelegramClient(session_name, API_ID, API_HASH)
+            try:
+                await client.connect()
+                if await client.is_user_authorized():
+                    me = await client.get_me()
+                    accounts = load_accounts()
+                    if not any(a['phone'] == phone for a in accounts):
+                        accounts.append({'phone': phone, 'name': me.first_name or ''})
+                        save_accounts(accounts)
+                    await client.disconnect()
+                    del pending_auth[user_id]
+                    await message.answer(
+                        f"✅ Akaunt allaqachon ulangan: {me.first_name} ({phone})\n"
+                        f"♻️ Botni qayta ishga tushiring!",
+                        reply_markup=main_menu()
+                    )
+                else:
+                    sent = await client.send_code_request(phone, force_sms=True)
+                    pending_auth[user_id] = {
+                        'step': 'waiting_code',
+                        'phone': phone,
+                        'client': client,
+                        'phone_code_hash': sent.phone_code_hash
+                    }
+                    await message.answer(
+                        f"📲 {phone} raqamiga kod yuborildi\n\n"
+                        "⚠️ Telegram ilovasiga yoki SMS ga kelgan kodni kiriting:"
+                    )
+            except PhoneNumberInvalidError:
+                try: await client.disconnect()
+                except: pass
+                del pending_auth[user_id]
+                await message.answer("❌ Noto'g'ri telefon raqam!")
+            except Exception as e:
+                try: await client.disconnect()
+                except: pass
+                del pending_auth[user_id]
+                logger.error(f"Phone step: {e}")
+                await message.answer(f"❌ Xatolik: {e}")
+            return
+
+        elif step == 'waiting_code':
+            code = message.text.strip().replace(' ', '').replace('-', '')
+            client = pending_auth[user_id]['client']
+            phone = pending_auth[user_id]['phone']
+            phone_code_hash = pending_auth[user_id]['phone_code_hash']
+            try:
+                await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                me = await client.get_me()
+                accounts = load_accounts()
+                if not any(a['phone'] == phone for a in accounts):
+                    accounts.append({'phone': phone, 'name': me.first_name or ''})
+                    save_accounts(accounts)
+                await client.disconnect()
+                del pending_auth[user_id]
+                await message.answer(
+                    f"✅ Ulandi: {me.first_name} ({phone})\n\n"
+                    f"♻️ Botni qayta ishga tushiring!",
+                    reply_markup=main_menu()
+                )
+            except SessionPasswordNeededError:
+                pending_auth[user_id]['step'] = 'waiting_2fa'
+                await message.answer("🔐 2FA parolini kiriting:")
+            except PhoneCodeInvalidError:
+                await message.answer("❌ Noto'g'ri kod! Qayta kiriting:")
+            except Exception as e:
+                try: await client.disconnect()
+                except: pass
+                del pending_auth[user_id]
+                logger.error(f"Code step: {e}")
+                await message.answer(f"❌ Xatolik: {e}")
+            return
+
+        elif step == 'waiting_2fa':
+            password = message.text.strip()
+            client = pending_auth[user_id]['client']
+            phone = pending_auth[user_id]['phone']
+            try:
+                await client.sign_in(password=password)
+                me = await client.get_me()
+                accounts = load_accounts()
+                if not any(a['phone'] == phone for a in accounts):
+                    accounts.append({'phone': phone, 'name': me.first_name or ''})
+                    save_accounts(accounts)
+                await client.disconnect()
+                del pending_auth[user_id]
+                await message.answer(
+                    f"✅ 2FA bilan ulandi: {me.first_name} ({phone})\n\n"
+                    f"♻️ Botni qayta ishga tushiring!",
+                    reply_markup=main_menu()
+                )
+            except Exception as e:
+                try: await client.disconnect()
+                except: pass
+                del pending_auth[user_id]
+                await message.answer(f"❌ Noto'g'ri parol: {e}")
+            return
+    # === AKAUNT ULASH TUGADI ===
+
     
-    # Taksi foydalanuvchilari uchun holatlar
     if user_id in user_states:
         # Yo'lovchilar soni
         if user_states[user_id] == 'waiting_passenger_count':
