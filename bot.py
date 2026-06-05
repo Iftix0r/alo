@@ -85,26 +85,6 @@ async def ensure_userbot_connected():
     # eski kod uchun placeholder
     pass
 
-async def _old_send_noop():
-    # eski kod uchun placeholder
-    pass
-
-async def _old_code_placeholder():
-    if False:
-        logger.error(f"Userbot ulanishida xatolik: {e}")
-        raise
-
-async def send_userbot_message(user_id: int, text: str):
-    try:
-        await ensure_userbot_connected()
-        await userbot_client.send_message(entity=user_id, message=text)
-        return True
-    except errors.FloodWaitError as e:
-        logger.error(f"Userbot flood wait: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Userbot xabar yuborishda xatolik: {e}")
-        return False
 
 # Ma'lumotlar bazasini ishga tushirish
 def init_keywords_db():
@@ -299,6 +279,50 @@ def groups_menu(page=0):
     buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@dp.message(lambda m: m.text == "👤 Akauntlar")
+async def accounts_handler(message: types.Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Ruxsat yo'q")
+        return
+    accounts = load_accounts()
+    text = f"👤 Ulangan akauntlar: {len(accounts)} ta"
+    if not accounts:
+        text += "\n\n❌ Hech qanday akaunt yo'q"
+    await message.answer(text, reply_markup=accounts_menu())
+
+
+@dp.callback_query(lambda c: c.data == "add_account")
+async def add_account_cb(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Ruxsat yo'q", show_alert=True)
+        return
+    pending_auth[callback.from_user.id] = {'step': 'waiting_phone'}
+    await callback.message.edit_text(
+        "📱 Telefon raqamini kiriting:\n"
+        "Masalan: +998901234567"
+    )
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data.startswith("del_account_"))
+async def del_account_cb(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Ruxsat yo'q", show_alert=True)
+        return
+    phone = callback.data[len("del_account_"):]
+    accounts = [a for a in load_accounts() if a.get('phone') != phone]
+    save_accounts(accounts)
+    session_file = f"session_{phone.replace('+', '')}.session"
+    if os.path.exists(session_file):
+        os.remove(session_file)
+    await callback.answer(f"✅ {phone} o'chirildi", show_alert=True)
+    await callback.message.edit_text(
+        f"👤 Ulangan akauntlar: {len(accounts)} ta",
+        reply_markup=accounts_menu()
+    )
+
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
