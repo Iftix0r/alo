@@ -66,6 +66,19 @@ def save_accounts(accounts):
         json.dump(accounts, f, indent=2)
 
 async def send_userbot_message(user_id: int, text: str):
+    # Avval userbot session fayli orqali urinish
+    try:
+        client = TelegramClient('userbot', API_ID, API_HASH)
+        await client.connect()
+        if await client.is_user_authorized():
+            await client.send_message(entity=user_id, message=text)
+            await client.disconnect()
+            return True
+        await client.disconnect()
+    except Exception as e:
+        logger.error(f"Userbot session orqali xabar yuborishda xatolik: {e}")
+
+    # Fallback: accounts.json dagi akkauntlar
     for acc in load_accounts():
         phone = acc.get('phone', '')
         session = f"session_{phone.replace('+', '')}"
@@ -80,31 +93,6 @@ async def send_userbot_message(user_id: int, text: str):
         except Exception as e:
             logger.error(f"Xabar yuborishda xatolik ({phone}): {e}")
     return False
-
-async def ensure_userbot_connected():
-    # eski kod uchun placeholder
-    pass
-
-async def _old_send_noop():
-    # eski kod uchun placeholder
-    pass
-
-async def _old_code_placeholder():
-    if False:
-        logger.error(f"Userbot ulanishida xatolik: {e}")
-        raise
-
-async def send_userbot_message(user_id: int, text: str):
-    try:
-        await ensure_userbot_connected()
-        await userbot_client.send_message(entity=user_id, message=text)
-        return True
-    except errors.FloodWaitError as e:
-        logger.error(f"Userbot flood wait: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Userbot xabar yuborishda xatolik: {e}")
-        return False
 
 # Ma'lumotlar bazasini ishga tushirish
 def init_keywords_db():
