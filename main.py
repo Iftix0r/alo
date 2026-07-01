@@ -433,7 +433,6 @@ async def handler(event):
     if sender is None:
         try:
             sender = await event.get_sender()
-            print(f"🔍 Sender qayta olindi: {sender}")
         except Exception as e:
             logger.debug(f"Sender olishda xatolik (2-urinish): {e}")
             sender = None
@@ -494,7 +493,6 @@ async def handler(event):
                 return
                 
             user_id = sender.id
-            print(f"✅ User ID olindi: {user_id}")
             user_name = f"{sender.first_name or 'Nomaʼlum'}"
             if hasattr(sender, 'last_name') and sender.last_name:
                 user_name = f"{sender.first_name} {sender.last_name}"
@@ -557,26 +555,27 @@ async def handler(event):
     keywords = load_keywords_from_db()
     text_lower = base_text.lower().strip()
     
-    # Haydovchi so'zlarini tekshirish
     has_driver_words = False
     for word in keywords['driver']:
         if word.lower() in text_lower:
             has_driver_words = True
             break
     
-    # Yo'lovchi so'zlarini tekshirish
     has_passenger_words = False
     for word in keywords['passenger']:
         if word.lower() in text_lower:
             has_passenger_words = True
             break
     
-    # Agar haydovchi so'zlari bo'lsa, xabarni ignore qilish
+    sender_name = f"{getattr(sender, 'first_name', '')} {getattr(sender, 'last_name', '') or ''}" .strip() if sender else "Noma'lum"
+    chat_display = getattr(chat, 'title', str(event.chat_id)) if chat else str(event.chat_id)
+    
     if has_driver_words:
+        print(f"🚗 [{chat_display}] {sender_name}: haydovchi so'zi — o'tkazib yuborildi")
         return
     
-    # Agar yo'lovchi so'zlari yo'q bo'lsa, xabarni ignore qilish
     if not has_passenger_words:
+        print(f"🔕 [{chat_display}] {sender_name}: kalit so'z yo'q — o'tkazib yuborildi")
         return
     
     user_type = '🙋♂️ Yolovchi'
@@ -605,11 +604,19 @@ async def handler(event):
     # Haydovchi va yo'lovchilarni bazaga saqlash (bloklangan bo'lsa ham)
     order_number = save_user_and_zakaz(user_id, clean_user_name.strip(), username, phone, user_type, text_content, chat_title, event.chat_id)
     
+    print(f"\n{'='*50}")
+    print(f"📨 YANGI ZAKAZ #{order_number}")
+    print(f"   👤 Foydalanuvchi : {clean_user_name.strip() or 'Noma\'lum'} (ID: {user_id})")
+    print(f"   💬 Xabar        : {base_text[:60]}{'...' if len(base_text) > 60 else ''}")
+    print(f"   🧳 Guruh         : {chat_title}")
+    print(f"   🕒 Vaqt          : {__import__('datetime').datetime.now().strftime('%H:%M:%S')}")
+    
 # Agar bloklangan bo'lsa, guruhga yubormaslik va xabarni o'chirish
     if is_blocked:
         try:
             await event.delete()
-            logger.info(f"Bloklangan foydalanuvchi xabari ochirildi: {user_id}")
+            print(f"   🚫 BLOKLANGAN — xabar o'chirildi")
+            print(f"{'='*50}")
         except Exception as e:
             logger.error(f"Bloklangan foydalanuvchi xabarini ochirishda xatolik: {e}")
         return
@@ -698,10 +705,10 @@ async def handler(event):
                 json=payload
             )
             if response.status == 200:
-                print("✅ Asosiy buyurtma guruhiga yuborildi")
+                print(f"   ✅ Buyurtma guruhiga yuborildi")
             else:
                 error_text = await response.text()
-                print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
+                print(f"   ❌ Buyurtma guruhiga yuborishda xatolik: {response.status}")
                 logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
 
         # Fast guruhga yuborish
@@ -718,10 +725,20 @@ async def handler(event):
                     json=fast_payload
                 )
                 if resp.status == 200:
-                    print("⚡ Fast guruhga yuborildi")
+                    print(f"   ⚡ Fast guruhga yuborildi")
                 else:
                     err = await resp.text()
+                    print(f"   ❌ Fast guruhga yuborishda xatolik: {resp.status}")
                     logger.error(f"Fast guruhga yuborishda xatolik: {resp.status} - {err}")
+        elif FAST_GROUP_ID:
+            if not is_fast_message(base_text):
+                reason = f"100+ belgi ({len(base_text)}ta)" if len(base_text) >= 100 else "emoji bor"
+                print(f"   ⏭️  Fast guruh: o'tkazildi ({reason})")
+            else:
+                entry = fast_rate_limit.get(user_id, {})
+                print(f"   ⏭️  Fast guruh: limit ({entry.get('count', 0)}/3 bugun)")
+        
+        print(f"{'='*50}")
         
         # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
         pass
