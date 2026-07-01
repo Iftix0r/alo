@@ -315,9 +315,9 @@ from datetime import date
 # Fast guruh uchun rate limit: {user_id: {last, date, count}}
 fast_rate_limit = {}
 
-def is_fast_message(text):
-    """100 belgidan kam, emoji yo'q matnlarni tekshirish"""
-    if not text or len(text) >= 100:
+def is_fast_message(text_content, base_text):
+    """Butun xabar 100 belgidan kam va emoji yo'q bo'lsa fast"""
+    if not text_content or len(text_content) >= 100:
         return False
     emoji_pattern = re.compile(
         u"[\U0001F300-\U0001FFFF"
@@ -326,7 +326,7 @@ def is_fast_message(text):
         u"\u2600-\u26FF\u2700-\u27BF]+",
         re.UNICODE
     )
-    return not emoji_pattern.search(text)
+    return not emoji_pattern.search(text_content)
 
 def can_send_to_fast(user_id):
     """1 foydalanuvchi: 1 daqiqada 1 ta, kunda 3 ta zakaz"""
@@ -577,7 +577,7 @@ async def handler(event):
     # Kalit so'z yo'q bo'lsa — faqat fast guruhga yuborish mumkin
     only_fast = not has_passenger_words
     if only_fast:
-        if not (FAST_GROUP_ID and is_fast_message(base_text)):
+        if not (FAST_GROUP_ID and is_fast_message(text_content, base_text)):
             print(f"🔕 [{chat_display}] {sender_name}: kalit so'z yo'q, fast filtrdan o'tmadi — o'tkazib yuborildi")
             return
     
@@ -717,10 +717,19 @@ async def handler(event):
                     logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
 
         # Fast guruhga yuborish
-        if FAST_GROUP_ID and is_fast_message(base_text) and can_send_to_fast(user_id):
+        if FAST_GROUP_ID and is_fast_message(text_content, base_text) and can_send_to_fast(user_id):
+            fast_message_parts = ["⚡ Fast zakaz!"]
+            if user_info:
+                fast_message_parts.append(f"👤 {user_info}")
+            if text_content.strip():
+                fast_message_parts.append(f"💬 {text_content.strip()}")
+            if user_details.strip():
+                fast_message_parts.append(user_details.strip())
+            fast_message = "\n\n".join(fast_message_parts)
+
             fast_payload = {
                 "chat_id": FAST_GROUP_ID,
-                "text": message,
+                "text": fast_message,
                 "parse_mode": "HTML",
                 "reply_markup": {"inline_keyboard": buttons} if buttons else None
             }
@@ -736,8 +745,8 @@ async def handler(event):
                     print(f"   ❌ Fast guruhga yuborishda xatolik: {resp.status}")
                     logger.error(f"Fast guruhga yuborishda xatolik: {resp.status} - {err}")
         elif FAST_GROUP_ID:
-            if not is_fast_message(base_text):
-                reason = f"100+ belgi ({len(base_text)}ta)" if len(base_text) >= 100 else "emoji bor"
+            if not is_fast_message(text_content, base_text):
+                reason = f"100+ belgi ({len(text_content)}ta)" if len(text_content) >= 100 else "emoji bor"
                 print(f"   ⏭️  Fast guruh: o'tkazildi ({reason})")
             else:
                 entry = fast_rate_limit.get(user_id, {})
