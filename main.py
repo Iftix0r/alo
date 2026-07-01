@@ -307,9 +307,12 @@ def save_user_and_zakaz(user_id, user_name, username, phone, user_type, message,
     
     return next_order_number
 
+# Fast guruh uchun rate limit: {user_id: last_sent_time}
+fast_rate_limit = {}
+
 def is_fast_message(text):
-    """60 belgidan kam, emoji/stiker yo'q matnlarni tekshirish"""
-    if not text or len(text) >= 60:
+    """100 belgidan kam, emoji yo'q matnlarni tekshirish"""
+    if not text or len(text) >= 100:
         return False
     emoji_pattern = re.compile(
         u"[\U0001F300-\U0001FFFF"
@@ -319,6 +322,31 @@ def is_fast_message(text):
         re.UNICODE
     )
     return not emoji_pattern.search(text)
+
+def can_send_to_fast(user_id):
+    """1 daqiqada 1 ta, 1 kunda 3 ta zakaz tekshiruvi"""
+    import time
+    now = time.time()
+    today = __import__('datetime').date.today().isoformat()
+    
+    entry = fast_rate_limit.get(user_id, {"last": 0, "date": "", "count": 0})
+    
+    # Kun o'zgargan bo'lsa, hisobni nolga tushirish
+    if entry["date"] != today:
+        entry = {"last": 0, "date": today, "count": 0}
+    
+    # 1 daqiqa tekshiruvi
+    if now - entry["last"] < 60:
+        return False
+    
+    # Kunda 3 ta tekshiruvi
+    if entry["count"] >= 3:
+        return False
+    
+    entry["last"] = now
+    entry["count"] += 1
+    fast_rate_limit[user_id] = entry
+    return True
 
 
     if not text or not isinstance(text, str):
@@ -675,8 +703,8 @@ async def handler(event):
                 print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
                 logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
 
-        # Fast guruhga yuborish - 60 belgidan kam, emoji yo'q xabarlar
-        if FAST_GROUP_ID and is_fast_message(base_text):
+        # Fast guruhga yuborish
+        if FAST_GROUP_ID and is_fast_message(base_text) and can_send_to_fast(user_id):
             fast_payload = {
                 "chat_id": FAST_GROUP_ID,
                 "text": message,

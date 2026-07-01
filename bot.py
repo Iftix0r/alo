@@ -1327,7 +1327,6 @@ async def handle_text_message(message: types.Message):
         elif user_states[user_id] == 'waiting_fast_group_id':
             try:
                 fast_id = int(message.text.strip())
-                # .env faylini yangilash
                 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
                 with open(env_path, 'r') as f:
                     content = f.read()
@@ -1546,11 +1545,15 @@ def admin_menu():
 
 # Groups menu
 def groups_menu():
+    fast_id = os.getenv('FAST_GROUP_ID', '0')
+    fast_enabled = fast_id and fast_id != '0'
+    fast_toggle_text = "⚡ Fast guruh: ✅ Yoqilgan" if fast_enabled else "⚡ Fast guruh: ❌ O'chirilgan"
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📤 Buyurtma guruhlari", callback_data="list_order_groups")],
             [InlineKeyboardButton(text="➕ Buyurtma guruh qo'shish", callback_data="add_order_group_prompt")],
             [InlineKeyboardButton(text="➖ Buyurtma guruh o'chirish", callback_data="remove_order_group_prompt")],
+            [InlineKeyboardButton(text=fast_toggle_text, callback_data="toggle_fast_group")],
             [InlineKeyboardButton(text="⚡ Fast guruh ID ko'rish", callback_data="show_fast_group")],
             [InlineKeyboardButton(text="✏️ Fast guruh ID o'zgartirish", callback_data="set_fast_group")],
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_menu")]
@@ -1679,6 +1682,26 @@ def unblock_user(user_id):
     except Exception as e:
         logger.error(f"Error unblocking user {user_id}: {e}")
         raise
+
+@dp.callback_query(lambda c: c.data == "toggle_fast_group")
+async def toggle_fast_group_handler(callback: types.CallbackQuery):
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    current = os.getenv('FAST_GROUP_ID', '0')
+    import re as _re
+    with open(env_path, 'r') as f:
+        content = f.read()
+    if current and current != '0':
+        # O'chirish - 0 ga o'rnatish
+        if 'FAST_GROUP_ID' in content:
+            content = _re.sub(r'FAST_GROUP_ID=.*', 'FAST_GROUP_ID=0', content)
+        with open(env_path, 'w') as f:
+            f.write(content)
+        os.environ['FAST_GROUP_ID'] = '0'
+        await callback.answer("❌ Fast guruh o'chirildi", show_alert=True)
+    else:
+        await callback.answer("⚠️ Avval Fast guruh ID ni o'rnating", show_alert=True)
+        return
+    await callback.message.edit_text("📋 Guruh boshqaruvi:", reply_markup=groups_menu())
 
 @dp.callback_query(lambda c: c.data == "show_fast_group")
 async def show_fast_group_handler(callback: types.CallbackQuery):
