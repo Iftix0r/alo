@@ -588,7 +588,7 @@ async def handler(event):
 
     
     # Xabar tayyorlash - sodda format
-    message_parts = []
+    message_parts = ["🆕 Yangi buyurtma!"]
     
     # Foydalanuvchi ismi - emoji bilan
     if user_info:
@@ -650,9 +650,6 @@ async def handler(event):
 
     # Faqat admin tugmalari: mijozga yozish va bloklash
     if user_id:
-        buttons.append([
-            {"text": "✍️ Mijozga yozish", "callback_data": f"reply_user_{user_id}"}
-        ])
         buttons.append([
             {"text": "🚫 Bloklash", "callback_data": f"block_{user_id}"}
         ])
