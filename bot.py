@@ -789,8 +789,7 @@ async def block_user_callback(callback: types.CallbackQuery):
             conn.commit()
         
         await callback.answer(f"✅ Foydalanuvchi bloklandi: {user_id}")
-        # Xabarni yangilash
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.delete()
     except ValueError:
         await callback.answer("❌ Noto'g'ri foydalanuvchi ID")
     except Exception as e:
