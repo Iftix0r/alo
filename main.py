@@ -7,7 +7,9 @@ import os
 import json
 import sqlite3
 import re
+import time
 import logging
+from datetime import date
 from dotenv import load_dotenv
 from contextlib import contextmanager
 
@@ -307,7 +309,10 @@ def save_user_and_zakaz(user_id, user_name, username, phone, user_type, message,
     
     return next_order_number
 
-# Fast guruh uchun rate limit: {user_id: last_sent_time}
+import time
+from datetime import date
+
+# Fast guruh uchun rate limit: {user_id: {last, date, count}}
 fast_rate_limit = {}
 
 def is_fast_message(text):
@@ -324,25 +329,21 @@ def is_fast_message(text):
     return not emoji_pattern.search(text)
 
 def can_send_to_fast(user_id):
-    """1 daqiqada 1 ta, 1 kunda 3 ta zakaz tekshiruvi"""
-    import time
+    """1 foydalanuvchi: 1 daqiqada 1 ta, kunda 3 ta zakaz"""
     now = time.time()
-    today = __import__('datetime').date.today().isoformat()
-    
+    today = date.today().isoformat()
+
     entry = fast_rate_limit.get(user_id, {"last": 0, "date": "", "count": 0})
-    
-    # Kun o'zgargan bo'lsa, hisobni nolga tushirish
+
     if entry["date"] != today:
         entry = {"last": 0, "date": today, "count": 0}
-    
-    # 1 daqiqa tekshiruvi
+
     if now - entry["last"] < 60:
         return False
-    
-    # Kunda 3 ta tekshiruvi
+
     if entry["count"] >= 3:
         return False
-    
+
     entry["last"] = now
     entry["count"] += 1
     fast_rate_limit[user_id] = entry
