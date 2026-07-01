@@ -567,16 +567,19 @@ async def handler(event):
             has_passenger_words = True
             break
     
-    sender_name = f"{getattr(sender, 'first_name', '')} {getattr(sender, 'last_name', '') or ''}" .strip() if sender else "Noma'lum"
+    sender_name = f"{getattr(sender, 'first_name', '')} {getattr(sender, 'last_name', '') or ''}".strip() if sender else "Noma'lum"
     chat_display = getattr(chat, 'title', str(event.chat_id)) if chat else str(event.chat_id)
-    
+
     if has_driver_words:
         print(f"🚗 [{chat_display}] {sender_name}: haydovchi so'zi — o'tkazib yuborildi")
         return
-    
-    if not has_passenger_words:
-        print(f"🔕 [{chat_display}] {sender_name}: kalit so'z yo'q — o'tkazib yuborildi")
-        return
+
+    # Kalit so'z yo'q bo'lsa — faqat fast guruhga yuborish mumkin
+    only_fast = not has_passenger_words
+    if only_fast:
+        if not (FAST_GROUP_ID and is_fast_message(base_text)):
+            print(f"🔕 [{chat_display}] {sender_name}: kalit so'z yo'q, fast filtrdan o'tmadi — o'tkazib yuborildi")
+            return
     
     user_type = '🙋♂️ Yolovchi'
     
@@ -610,6 +613,8 @@ async def handler(event):
     print(f"   💬 Xabar        : {base_text[:60]}{'...' if len(base_text) > 60 else ''}")
     print(f"   🧳 Guruh         : {chat_title}")
     print(f"   🕒 Vaqt          : {__import__('datetime').datetime.now().strftime('%H:%M:%S')}")
+    if only_fast:
+        print(f"   ⚡ Faqat fast guruh (kalit so'z yo'q)")
     
 # Agar bloklangan bo'lsa, guruhga yubormaslik va xabarni o'chirish
     if is_blocked:
@@ -691,25 +696,25 @@ async def handler(event):
         ])
 
     try:
-        # Asosiy buyurtma guruhiga yuborish - FAQAT BUYURTMA GURUHIGA
-        payload = {
-            "chat_id": ORDER_GROUP_ID,
-            "text": message,
-            "parse_mode": "HTML",
-            "reply_markup": {"inline_keyboard": buttons} if buttons else None
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            response = await session.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json=payload
-            )
-            if response.status == 200:
-                print(f"   ✅ Buyurtma guruhiga yuborildi")
-            else:
-                error_text = await response.text()
-                print(f"   ❌ Buyurtma guruhiga yuborishda xatolik: {response.status}")
-                logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
+        # Asosiy buyurtma guruhiga yuborish - faqat kalit so'z bor bo'lsa
+        if not only_fast:
+            payload = {
+                "chat_id": ORDER_GROUP_ID,
+                "text": message,
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": buttons} if buttons else None
+            }
+            async with aiohttp.ClientSession() as session:
+                response = await session.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json=payload
+                )
+                if response.status == 200:
+                    print(f"   ✅ Buyurtma guruhiga yuborildi")
+                else:
+                    error_text = await response.text()
+                    print(f"   ❌ Buyurtma guruhiga yuborishda xatolik: {response.status}")
+                    logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
 
         # Fast guruhga yuborish
         if FAST_GROUP_ID and is_fast_message(base_text) and can_send_to_fast(user_id):
@@ -737,7 +742,7 @@ async def handler(event):
             else:
                 entry = fast_rate_limit.get(user_id, {})
                 print(f"   ⏭️  Fast guruh: limit ({entry.get('count', 0)}/3 bugun)")
-        
+
         print(f"{'='*50}")
         
         # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
