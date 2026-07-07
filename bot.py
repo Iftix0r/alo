@@ -1353,6 +1353,36 @@ async def handle_text_message(message: types.Message):
                 await message.answer("❌ Noto'g'ri format! Raqam kiriting.")
             del user_states[user_id]
             return
+
+        elif user_states[user_id] == 'waiting_broadcast_message':
+            if message.text == '/cancel':
+                await message.answer("Barchaga xabar yuborish bekor qilindi.")
+                del user_states[user_id]
+                return
+            
+            message_to_send = message.text
+            sent_msg = await message.answer("⏳ Xabar yuborilmoqda, iltimos kuting...")
+            try:
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT DISTINCT user_id FROM users WHERE user_id IS NOT NULL AND user_id != 0")
+                    users = cursor.fetchall()
+                
+                sent_count = 0
+                for user_row in users:
+                    uid = user_row[0]
+                    try:
+                        await bot.send_message(chat_id=uid, text=message_to_send)
+                        sent_count += 1
+                        await asyncio.sleep(0.05)
+                    except Exception:
+                        pass
+                
+                await sent_msg.edit_text(f"✅ Xabar muvaffaqiyatli {sent_count} ta foydalanuvchiga yuborildi.")
+            except Exception as e:
+                await sent_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
+            del user_states[user_id]
+            return
     
     # Admin uchun qidiruv faqat waiting_search_query holati orqali ishlaydi
 
@@ -1573,6 +1603,8 @@ def groups_menu():
 def users_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Foydalanuvchilar statistikasi", callback_data="user_statistics")],
+            [InlineKeyboardButton(text="📢 Barchaga xabar yuborish", callback_data="broadcast_prompt")],
             [InlineKeyboardButton(text="🚫 Bloklangan foydalanuvchilar", callback_data="list_blocked")],
             [InlineKeyboardButton(text="🚫 Foydalanuvchini bloklash", callback_data="block_user_prompt")],
             [InlineKeyboardButton(text="✅ Blokdan chiqarish", callback_data="unblock_user_prompt")],
@@ -1771,6 +1803,43 @@ async def list_admins_handler(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"Adminlar ro'yxatini olishda xatolik: {e}")
         await callback.message.edit_text("❌ Xatolik yuz berdi")
+
+@dp.callback_query(lambda c: c.data == "user_statistics")
+async def user_statistics_handler(callback: types.CallbackQuery):
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM users WHERE user_id IS NOT NULL AND user_id != 0")
+            total_users = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM users WHERE DATE(first_seen) = DATE('now') AND user_id IS NOT NULL AND user_id != 0")
+            today_new_users = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM blocked_users")
+            blocked_users = cursor.fetchone()[0]
+            
+        text = (
+            "📊 <b>Foydalanuvchilar statistikasi:</b>\n\n"
+            f"👥 Jami ro'yxatdan o'tganlar: <b>{total_users}</b>\n"
+            f"🆕 Bugun qo'shilganlar: <b>{today_new_users}</b>\n"
+            f"🚫 Bloklanganlar: <b>{blocked_users}</b>"
+        )
+        await callback.message.edit_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="users_menu")]]))
+    except Exception as e:
+        logger.error(f"Statistika xatolik: {e}")
+        await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "broadcast_prompt")
+async def broadcast_prompt_handler(callback: types.CallbackQuery):
+    user_states[callback.from_user.id] = 'waiting_broadcast_message'
+    await callback.message.edit_text(
+        "📢 <b>Xabar yuborish:</b>\n\n"
+        "Barcha foydalanuvchilarga yuboriladigan xabarni kiriting.\n"
+        "(Bekor qilish uchun /cancel yuboring)",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="users_menu")]])
+    )
 
 async def send_demo_orders():
     """Bot ishga tushganda 10 ta demo zakaz yuborish"""
