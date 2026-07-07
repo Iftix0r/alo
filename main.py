@@ -449,17 +449,12 @@ async def handler(event):
     if not text_content:
         return
     
-    # Xabardagi real zakaz matnini ajratib olish (oxirgi bo'sh bo'lmagan qator)
-    lines = [l.strip() for l in text_content.splitlines() if l.strip()]
-    if not lines:
-        return
-    
     # Faqat emoji yoki belgilardan iborat xabarlarni o'tkazib yuborish (harf yoki raqam bo'lishi kerak)
     import re
     if not re.search(r'[a-zA-Zа-яА-ЯўЎқҚғҒҳҲ0-9]', text_content):
         return
         
-    base_text = lines[-1]
+    base_text = text_content.strip()
     
     # Sender va chat ma'lumotlarini xavfsiz olish
     chat = None
