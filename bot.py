@@ -1353,9 +1353,7 @@ async def handle_text_message(message: types.Message):
             del user_states[user_id]
             return
     
-    # Qidiruv funksiyasi - faqat admin uchun
-    if is_admin(message.from_user.id):
-        await search_user_func(message)
+    # Admin uchun qidiruv faqat waiting_search_query holati orqali ishlaydi
 
 async def search_user_func(message: types.Message):
     search_term = message.text.strip()
