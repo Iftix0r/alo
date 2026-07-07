@@ -710,41 +710,7 @@ async def handler(event):
                     print(f"   ❌ Buyurtma guruhiga yuborishda xatolik: {response.status}")
                     logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
 
-        # Fast guruhga yuborish
-        if FAST_GROUP_ID and is_fast_message(text_content, base_text) and can_send_to_fast(user_id):
-            fast_message_parts = ["⚡ Fast zakaz!"]
-            if user_info:
-                fast_message_parts.append(f"👤 {user_info}")
-            if text_content.strip():
-                fast_message_parts.append(f"💬 {text_content.strip()}")
-            if user_details.strip():
-                fast_message_parts.append(user_details.strip())
-            fast_message = "\n\n".join(fast_message_parts)
 
-            fast_payload = {
-                "chat_id": FAST_GROUP_ID,
-                "text": fast_message,
-                "parse_mode": "HTML",
-                "reply_markup": {"inline_keyboard": buttons} if buttons else None
-            }
-            async with aiohttp.ClientSession() as session:
-                resp = await session.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json=fast_payload
-                )
-                if resp.status == 200:
-                    print(f"   ⚡ Fast guruhga yuborildi")
-                else:
-                    err = await resp.text()
-                    print(f"   ❌ Fast guruhga yuborishda xatolik: {resp.status}")
-                    logger.error(f"Fast guruhga yuborishda xatolik: {resp.status} - {err}")
-        elif FAST_GROUP_ID:
-            if not is_fast_message(text_content, base_text):
-                reason = f"100+ belgi ({len(text_content)}ta)" if len(text_content) >= 100 else "emoji bor"
-                print(f"   ⏭️  Fast guruh: o'tkazildi ({reason})")
-            else:
-                entry = fast_rate_limit.get(user_id, {})
-                print(f"   ⏭️  Fast guruh: limit ({entry.get('count', 0)}/3 bugun)")
 
         print(f"{'='*50}")
         
