@@ -357,6 +357,16 @@ async def start_handler(message: types.Message):
             parse_mode='HTML'
         )
 
+@dp.message(Command("admin"))
+async def admin_handler(message: types.Message):
+    if is_admin(message.from_user.id):
+        await message.answer(
+            "🔧 Admin Panel:",
+            reply_markup=admin_menu()
+        )
+    else:
+        await message.answer("❌ Sizga ruxsat yo'q!")
+
 @dp.message(lambda message: message.text == "📊 Statistika")
 async def stats_handler(message: types.Message):
     conn = sqlite3.connect('zakazlar.db')

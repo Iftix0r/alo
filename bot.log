@@ -2,3 +2,7 @@ Traceback (most recent call last):
   File "/home/it/Documents/Iftixor_Github/alo/alo/bot.py", line 2, in <module>
     from aiogram import Bot, Dispatcher, types
 ModuleNotFoundError: No module named 'aiogram'
+Traceback (most recent call last):
+  File "/home/it/Documents/Iftixor_Github/alo/alo/bot.py", line 2, in <module>
+    from aiogram import Bot, Dispatcher, types
+ModuleNotFoundError: No module named 'aiogram'
