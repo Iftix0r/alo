@@ -561,12 +561,6 @@ async def handler(event):
             has_driver_words = True
             break
     
-    has_passenger_words = False
-    for word in keywords['passenger']:
-        if word.lower() in text_lower:
-            has_passenger_words = True
-            break
-    
     sender_name = f"{getattr(sender, 'first_name', '')} {getattr(sender, 'last_name', '') or ''}".strip() if sender else "Noma'lum"
     chat_display = getattr(chat, 'title', str(event.chat_id)) if chat else str(event.chat_id)
 
@@ -574,12 +568,8 @@ async def handler(event):
         print(f"🚗 [{chat_display}] {sender_name}: haydovchi so'zi — o'tkazib yuborildi")
         return
 
-    # Kalit so'z yo'q bo'lsa — faqat fast guruhga yuborish mumkin
-    only_fast = not has_passenger_words
-    if only_fast:
-        if not (FAST_GROUP_ID and is_fast_message(text_content, base_text)):
-            print(f"🔕 [{chat_display}] {sender_name}: kalit so'z yo'q, fast filtrdan o'tmadi — o'tkazib yuborildi")
-            return
+    # Haydovchi so'zi yo'q — zakaz sifatida qabul qilinadi
+    only_fast = False  # Yo'lovchi so'zlari tizimi olib tashlandi
     
     user_type = '🙋♂️ Yolovchi'
     
