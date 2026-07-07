@@ -754,9 +754,19 @@ async def handler(event):
 
         print(f"{'='*50}")
         
-        # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
-        pass
-
+        # USERBOT ORQALI XABAR YUBORISH
+        try:
+            if not only_fast:
+                await client.send_message(
+                    ORDER_GROUP_ID,
+                    message,
+                    parse_mode='html',
+                    link_preview=False
+                )
+                print(f"   ✅ Userbot orqali guruhga yuborildi")
+        except Exception as ub_err:
+            print(f"   ❌ Userbot yuborishda xatolik: {ub_err}")
+            logger.error(f"Userbot orqali yuborishda xatolik: {ub_err}")
             
     except Exception as e:
         logger.error(f"Zakaz yuborishda umumiy xatolik: {e}")

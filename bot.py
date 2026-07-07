@@ -990,7 +990,7 @@ async def send_taxi_order_simple(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b></b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
+        f"<b>Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
         f"<b>Telefon:</b>\n📞 {phone}\n\n"
         f"<b>Yo'nalish:</b>\n🚗 {user_data['from_city']} ➡️ {user_data['to_city']}\n\n"
         f'<b>Yo\'lovchilar:</b>\n👥 {user_data.get("passenger_count", "Noma'lum")}\n\n'
@@ -1021,6 +1021,9 @@ async def send_taxi_order_simple(message, user, phone):
             parse_mode='HTML',
             reply_markup=order_keyboard
         )
+        
+        # Userbot orqali ham yuborish
+        await send_userbot_message(ORDER_GROUP_ID, order_message)
         
         # Qo'shimcha guruhlarga yubormaslik - faqat asosiy guruhga yuborish
         
@@ -1083,7 +1086,7 @@ async def send_taxi_order(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b>Muboradi Mijoz Ismi:</b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
+        f"<b>Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
         f"<b>Telefon:</b>\n📞 {formatted_phone}\n\n"
         f"<b>Qayerga:</b>\n🎯 {user_data['destination']}"
     )
@@ -1097,6 +1100,9 @@ async def send_taxi_order(message, user, phone):
             parse_mode='HTML',
             reply_markup=order_keyboard
         )
+        
+        # Userbot orqali ham yuborish
+        await send_userbot_message(ORDER_GROUP_ID, order_message)
         
         # 2. Joylashuvni yuborish - FAQAT ORDER_GROUP_ID GA
         if "latitude" in user_data and "longitude" in user_data:
