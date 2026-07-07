@@ -249,11 +249,9 @@ def accounts_menu():
 def words_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Yo'lovchi so'zi qo'shish", callback_data="add_passenger")],
-            [InlineKeyboardButton(text="➖ Yo'lovchi so'zi o'chirish", callback_data="delete_passenger")],
             [InlineKeyboardButton(text="🚗 Haydovchi so'zi qo'shish", callback_data="add_driver")],
             [InlineKeyboardButton(text="❌ Haydovchi so'zi o'chirish", callback_data="delete_driver")],
-            [InlineKeyboardButton(text="📋 Barcha so'zlar", callback_data="list_words")],
+            [InlineKeyboardButton(text="📋 Haydovchi so'zlari", callback_data="list_words")],
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")]
         ]
     )
@@ -726,15 +724,6 @@ async def add_driver_words(callback: types.CallbackQuery):
         "Masalan: ketaman, boraman, olib ketaman"
     )
 
-@dp.callback_query(lambda c: c.data == "add_passenger")
-async def add_passenger_words(callback: types.CallbackQuery):
-    user_states[callback.from_user.id] = 'waiting_passenger_words'
-    await callback.message.edit_text(
-        "🙋♂️ Yo'lovchi so'zlarini qo'shish:\n\n"
-        "So'zlarni vergul bilan ajratib yozing:\n"
-        "Masalan: kerak, ketish kerak, olib keting"
-    )
-
 @dp.callback_query(lambda c: c.data == "delete_driver")
 async def delete_driver_words(callback: types.CallbackQuery):
     user_states[callback.from_user.id] = 'waiting_delete_driver_words'
@@ -747,26 +736,12 @@ async def delete_driver_words(callback: types.CallbackQuery):
     else:
         await callback.message.edit_text("📭 Haydovchi so'zlari yo'q")
 
-@dp.callback_query(lambda c: c.data == "delete_passenger")
-async def delete_passenger_words(callback: types.CallbackQuery):
-    user_states[callback.from_user.id] = 'waiting_delete_passenger_words'
-    passenger_words = get_keywords('passenger')
-    if passenger_words:
-        words_text = "\n".join([f"{i+1}. {word}" for i, word in enumerate(passenger_words)])
-        await callback.message.edit_text(
-            f"🙋♂️ Yo'lovchi so'zlarini o'chirish:\n\n{words_text}\n\nO'chirish uchun so'zni yozing:"
-        )
-    else:
-        await callback.message.edit_text("📭 Yo'lovchi so'zlari yo'q")
 
 @dp.callback_query(lambda c: c.data == "list_words")
 async def list_words(callback: types.CallbackQuery):
-    passenger_words = get_keywords('passenger')
     driver_words = get_keywords('driver')
     
-    text = f"📋 Yo'lovchi so'zlari ({len(passenger_words)}):\n\n"
-    text += ", ".join(passenger_words) if passenger_words else "Yo'q"
-    text += f"\n\n🚗 Haydovchi so'zlari ({len(driver_words)}):\n\n"
+    text = f"🚗 Haydovchi so'zlari ({len(driver_words)}):\n\n"
     text += ", ".join(driver_words) if driver_words else "Yo'q"
     
     await callback.message.edit_text(text)
