@@ -757,9 +757,10 @@ async def handler(event):
         # USERBOT ORQALI XABAR YUBORISH
         try:
             if not only_fast:
+                short_msg = f"<b>Mijoz lichkasi:</b> {user_info}"
                 await client.send_message(
                     ORDER_GROUP_ID,
-                    message,
+                    short_msg,
                     parse_mode='html',
                     link_preview=False
                 )

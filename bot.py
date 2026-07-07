@@ -1022,8 +1022,9 @@ async def send_taxi_order_simple(message, user, phone):
             reply_markup=order_keyboard
         )
         
-        # Userbot orqali ham yuborish
-        await send_userbot_message(ORDER_GROUP_ID, order_message)
+        # Userbot orqali qisqa xabar (Lichka havolasi)
+        short_msg = f"<b>Mijoz lichkasi:</b> <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>"
+        await send_userbot_message(ORDER_GROUP_ID, short_msg)
         
         # Qo'shimcha guruhlarga yubormaslik - faqat asosiy guruhga yuborish
         
@@ -1101,8 +1102,9 @@ async def send_taxi_order(message, user, phone):
             reply_markup=order_keyboard
         )
         
-        # Userbot orqali ham yuborish
-        await send_userbot_message(ORDER_GROUP_ID, order_message)
+        # Userbot orqali qisqa xabar (Lichka havolasi)
+        short_msg = f"<b>Mijoz lichkasi:</b> <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>"
+        await send_userbot_message(ORDER_GROUP_ID, short_msg)
         
         # 2. Joylashuvni yuborish - FAQAT ORDER_GROUP_ID GA
         if "latitude" in user_data and "longitude" in user_data:
