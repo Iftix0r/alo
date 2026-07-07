@@ -453,6 +453,12 @@ async def handler(event):
     lines = [l.strip() for l in text_content.splitlines() if l.strip()]
     if not lines:
         return
+    
+    # Faqat emoji yoki belgilardan iborat xabarlarni o'tkazib yuborish (harf yoki raqam bo'lishi kerak)
+    import re
+    if not re.search(r'[a-zA-Zа-яА-ЯўЎқҚғҒҳҲ0-9]', text_content):
+        return
+        
     base_text = lines[-1]
     
     # Sender va chat ma'lumotlarini xavfsiz olish
