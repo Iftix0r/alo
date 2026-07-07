@@ -1196,21 +1196,31 @@ async def handle_text_message(message: types.Message):
             await message.answer(f"✅ {len(words)} ta yo'lovchi so'zi qo'shildi!")
             return
         elif user_states[user_id] == 'waiting_delete_driver_words':
-            words = [w.strip() for w in message.text.split(',') if w.strip()]
+            inputs = [w.strip() for w in message.text.split(',') if w.strip()]
             driver_words = get_keywords('driver')
             deleted, not_found = [], []
-            for word in words:
-                if word in driver_words:
-                    delete_keyword('driver', word)
-                    deleted.append(word)
+            for inp in inputs:
+                # Raqam bo'lsa — tartib raqami bo'yicha o'chirish
+                if inp.isdigit():
+                    idx = int(inp) - 1
+                    if 0 <= idx < len(driver_words):
+                        word = driver_words[idx]
+                        delete_keyword('driver', word)
+                        deleted.append(word)
+                    else:
+                        not_found.append(inp)
                 else:
-                    not_found.append(word)
+                    if inp in driver_words:
+                        delete_keyword('driver', inp)
+                        deleted.append(inp)
+                    else:
+                        not_found.append(inp)
             result = []
             if deleted:
-                result.append(f"❌ O'chirildi: {', '.join(deleted)}")
+                result.append(f"✅ O'chirildi: {', '.join(deleted)}")
             if not_found:
                 result.append(f"⚠️ Topilmadi: {', '.join(not_found)}")
-            await message.answer('\n'.join(result))
+            await message.answer('\n'.join(result) if result else "⚠️ Hech narsa o'chirilmadi")
             del user_states[user_id]
             return
         elif user_states[user_id] == 'waiting_delete_passenger_words':
