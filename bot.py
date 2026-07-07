@@ -613,8 +613,8 @@ def departure_menu():
 def direction_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="𝗧𝗢𝗦𝗛𝗞𝗘𝗡𝗧 ➡️ 𝗣𝗢𝗣 𝗖𝗛𝗨𝗦𝗧", callback_data="dir_namangan_toshkent")],
-            [InlineKeyboardButton(text="𝗣𝗢𝗣 𝗖𝗛𝗨𝗦𝗧 ➡️ 𝗧𝗢𝗦𝗛𝗞𝗘𝗡𝗧", callback_data="dir_toshkent_namangan")]
+            [InlineKeyboardButton(text="𝗦𝗔𝗠𝗔𝗥𝗤𝗔𝗡𝗗 ➡️ 𝗙𝗔𝗥𝗚'𝗢𝗡𝗔", callback_data="dir_samarqand_fargona")],
+            [InlineKeyboardButton(text="𝗙𝗔𝗥𝗚'𝗢𝗡𝗔 ➡️ 𝗦𝗔𝗠𝗔𝗥𝗤𝗔𝗡𝗗", callback_data="dir_fargona_samarqand")]
         ]
     )
     return keyboard
@@ -836,12 +836,12 @@ async def reply_user_callback(callback: types.CallbackQuery):
 async def direction_handler(callback: types.CallbackQuery):
     direction = callback.data.replace("dir_", "")
     
-    if direction == "namangan_toshkent":
-        from_city = "TOSHKENT"
-        to_city = "POP CHUST"
-    elif direction == "toshkent_namangan":
-        from_city = "POP CHUST"
-        to_city = "TOSHKENT"
+    if direction == "samarqand_fargona":
+        from_city = "SAMARQAND"
+        to_city = "FARG'ONA"
+    elif direction == "fargona_samarqand":
+        from_city = "FARG'ONA"
+        to_city = "SAMARQAND"
     else:
         from_city = "Noma'lum"
         to_city = "Noma'lum"
