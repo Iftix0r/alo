@@ -449,12 +449,17 @@ async def handler(event):
     if not text_content:
         return
     
+    # Xabardagi real zakaz matnini ajratib olish (oxirgi bo'sh bo'lmagan qator)
+    lines = [l.strip() for l in text_content.splitlines() if l.strip()]
+    if not lines:
+        return
+    
     # Faqat emoji yoki belgilardan iborat xabarlarni o'tkazib yuborish (harf yoki raqam bo'lishi kerak)
     import re
     if not re.search(r'[a-zA-Zа-яА-ЯўЎқҚғҒҳҲ0-9]', text_content):
         return
         
-    base_text = text_content.strip()
+    base_text = lines[-1]
     
     # Sender va chat ma'lumotlarini xavfsiz olish
     chat = None
@@ -554,7 +559,7 @@ async def handler(event):
     
     # Haydovchi yoki yo'lovchi so'zlari bor xabarlarni olish
     keywords = load_keywords_from_db()
-    text_lower = base_text.lower().strip()
+    text_lower = text_content.lower().strip()
     
     has_driver_words = False
     for word in keywords['driver']:
