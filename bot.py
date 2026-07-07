@@ -748,9 +748,11 @@ async def list_words(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "back_main")
 async def back_main(callback: types.CallbackQuery):
+    if callback.from_user.id in user_states:
+        del user_states[callback.from_user.id]
     await callback.message.edit_text(
-        "🤖 Userbot boshqaruv paneli\n\n"
-        "Quyidagi tugmalardan birini tanlang:"
+        "📝 Qaysi turdagi so'zlar qo'shasiz?",
+        reply_markup=words_menu()
     )
 
 @dp.callback_query(lambda c: c.data.startswith("block_"))
@@ -1220,8 +1222,22 @@ async def handle_text_message(message: types.Message):
                 result.append(f"✅ O'chirildi: {', '.join(deleted)}")
             if not_found:
                 result.append(f"⚠️ Topilmadi: {', '.join(not_found)}")
-            await message.answer('\n'.join(result) if result else "⚠️ Hech narsa o'chirilmadi")
-            del user_states[user_id]
+            
+            msg_text = '\n'.join(result) if result else "⚠️ Hech narsa o'chirilmadi"
+            driver_words = get_keywords('driver')
+            
+            if driver_words:
+                words_text = "\n".join([f"{i+1}. {word}" for i, word in enumerate(driver_words)])
+                msg_text += f"\n\n🚗 Qolgan haydovchi so'zlari:\n{words_text}\n\nYana o'chirish uchun so'zni (yoki raqamini) yuboring.\nBekor qilish uchun tugmani bosing."
+            else:
+                msg_text += "\n\n📭 Haydovchi so'zlari qolmadi."
+                if user_id in user_states:
+                    del user_states[user_id]
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="back_main")]
+            ])
+            await message.answer(msg_text, reply_markup=keyboard)
             return
         elif user_states[user_id] == 'waiting_delete_passenger_words':
             words = [w.strip() for w in message.text.split(',') if w.strip()]
