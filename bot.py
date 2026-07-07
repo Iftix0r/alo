@@ -1147,13 +1147,15 @@ async def send_taxi_order(message, user, phone):
 
 @dp.message(lambda message: message.text == "🔍 Qidiruv")
 async def search_handler(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if message.chat.type != 'private' or not is_admin(message.from_user.id):
         return
     user_states[message.from_user.id] = 'waiting_search_query'
     await message.answer("🔍 Qidiruv uchun:\n\n👤 Foydalanuvchi ismini yoki\n🆔 Chat ID raqamini yozing:")
 
 @dp.message(lambda message: message.text and not message.text.startswith('/') and not message.text in ["📊 Statistika", "📝 So'zlar qo'shish", "⚙️ Sozlamalar", "🔍 Qidiruv", "🕜 Oxirgi 10 ta zakaz", "📋 Guruh statistikasi"])
 async def handle_text_message(message: types.Message):
+    if message.chat.type != 'private':
+        return
     user_id = message.from_user.id
     
     # Taksi foydalanuvchilari uchun holatlar
