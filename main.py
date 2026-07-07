@@ -493,8 +493,8 @@ async def handler(event):
             if sender.id == bot_id:
                 return
             
-            # Bot bo'lsa ignore qilish
-            if getattr(sender, 'is_bot', False):
+            # Bot bo'lsa ignore qilish (Telethon da bot xossasi)
+            if getattr(sender, 'bot', False):
                 logger.debug(f"Bot xabari ignore qilindi: {sender.username or sender.id}")
                 return
                 
@@ -514,12 +514,10 @@ async def handler(event):
             print(f"❌ Sender ma'lumotini olishda xatolik: {e}")
             user_info = "Noma'lum foydalanuvchi"
             user_id = 0
-    # Sender yo'q bo'lsa
+    # Sender yo'q bo'lsa (Kanal yoki anonim admin)
     else:
-        print(f"⚠️  Sender yo'q (None)")
-        user_info = "Noma'lum foydalanuvchi"
-        user_id = 0
-        sender = None
+        print(f"⚠️  Sender yo'q (None) yoki kanal/anonim. Ignore qilinadi.")
+        return
     
     user_details = "\n".join(user_details_parts) if user_details_parts else ""
     
