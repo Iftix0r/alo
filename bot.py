@@ -1612,8 +1612,8 @@ def admin_menu():
     )
     return keyboard
 
-# Groups menu
-def groups_menu():
+# Admin panel - guruh sozlamalari menu (bu alohida funksiya)
+def admin_groups_menu():
     fast_id = os.getenv('FAST_GROUP_ID', '0')
     fast_enabled = fast_id and fast_id != '0'
     fast_toggle_text = "⚡ Fast guruh: ✅ Yoqilgan" if fast_enabled else "⚡ Fast guruh: ❌ O'chirilgan"
@@ -1669,7 +1669,7 @@ async def admin_menu_handler(callback: types.CallbackQuery):
 async def groups_menu_handler(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "📋 Guruh boshqaruvi:",
-        reply_markup=groups_menu()
+        reply_markup=admin_groups_menu()
     )
 
 @dp.callback_query(lambda c: c.data == "users_menu")
