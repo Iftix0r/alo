@@ -1168,6 +1168,30 @@ async def handle_text_message(message: types.Message):
         return
     user_id = message.from_user.id
     
+    # Kuzatiladigan guruh ID/link qo'shish
+    if user_states.get(user_id) == 'waiting_group_id':
+        text = message.text.strip()
+        groups = load_monitored_groups()
+        try:
+            group_id = int(text)
+        except ValueError:
+            group_id = text  # Link yoki username sifatida saqlash
+        
+        if group_id in groups:
+            await message.answer("⚠️ Bu guruh allaqachon mavjud!")
+        else:
+            groups.append(group_id)
+            if save_monitored_groups(groups):
+                await message.answer(
+                    f"✅ Guruh qo'shildi: {group_id}\n\n"
+                    f"👥 Jami kuzatilayotgan guruhlar: {len(groups)} ta",
+                    reply_markup=groups_menu(0)
+                )
+            else:
+                await message.answer("❌ Saqlashda xatolik!")
+        user_states.pop(user_id, None)
+        return
+    
     # Taksi foydalanuvchilari uchun holatlar
     if user_id in user_states:
         # Yo'lovchilar soni
