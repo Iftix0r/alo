@@ -272,7 +272,7 @@ def load_monitored_groups():
         with open('groups.json', 'r') as f:
             data = json.load(f)
             if isinstance(data, list):
-                return [g for g in data if isinstance(g, int)]
+                return [g for g in data if isinstance(g, (int, str))]
             return []
     except:
         return []
@@ -689,7 +689,11 @@ async def delete_group_handler(callback: types.CallbackQuery):
         await callback.answer("❌ Sizga ruxsat yo'q!", show_alert=True)
         return
     
-    group_id = int(callback.data.split("_")[2])
+    raw_id = callback.data.replace("delete_group_", "")
+    try:
+        group_id = int(raw_id)
+    except ValueError:
+        group_id = raw_id
     groups = load_monitored_groups()
     
     if group_id in groups:
@@ -720,8 +724,8 @@ async def add_new_group_handler(callback: types.CallbackQuery):
     user_states[callback.from_user.id] = 'waiting_group_id'
     await callback.message.edit_text(
         "➕ Yangi guruh qo'shish\n\n"
-        "Guruh ID sini yuboring:\n"
-        "Masalan: -1003417191538"
+        "Guruh ID yoki havolasini yuboring:\n"
+        "Masalan: -1003417191538 yoki t.me/guruh_nomi"
     )
     await callback.answer()
 
@@ -1957,29 +1961,31 @@ async def text_message_handler(message: types.Message):
     
     # Yangi guruh ID qo'shish
     if user_states.get(user_id) == 'waiting_group_id':
+        text = message.text.strip()
+        groups = load_monitored_groups()
+        
         try:
-            group_id = int(message.text)
-            groups = load_monitored_groups()
-            
-            if group_id in groups:
-                await message.answer(f"⚠️ Bu guruh allaqachon mavjud!")
-            else:
-                groups.append(group_id)
-                if save_monitored_groups(groups):
-                    await message.answer(f"✅ Guruh qo'shildi: {group_id}")
-                    
-                    # Yangilangan ro'yxatni ko'rsatish
-                    data = get_groups_page(0)
-                    text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
-                    text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
-                    
-                    await message.answer(text, reply_markup=groups_menu(0))
-                else:
-                    await message.answer("❌ Saqlashda xatolik!")
-            
-            user_states.pop(user_id, None)
+            group_id = int(text)
         except ValueError:
-            await message.answer("❌ Noto'g'ri format! Raqam yuboring.\nMasalan: -1003417191538")
+            group_id = text
+            
+        if group_id in groups:
+            await message.answer(f"⚠️ Bu guruh allaqachon mavjud!")
+        else:
+            groups.append(group_id)
+            if save_monitored_groups(groups):
+                await message.answer(f"✅ Guruh qo'shildi: {group_id}")
+                
+                # Yangilangan ro'yxatni ko'rsatish
+                data = get_groups_page(0)
+                text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
+                text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
+                
+                await message.answer(text, reply_markup=groups_menu(0))
+            else:
+                await message.answer("❌ Saqlashda xatolik!")
+        
+        user_states.pop(user_id, None)
 
 async def main():
     print("🤖 Bot ishga tushmoqda...")

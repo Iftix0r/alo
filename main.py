@@ -57,7 +57,7 @@ def load_groups():
         with open('groups.json', 'r') as f:
             data = json.load(f)
             if isinstance(data, list):
-                return [g for g in data if isinstance(g, int)]
+                return [g for g in data if isinstance(g, (int, str))]
             return []
     except:
         return []
@@ -71,6 +71,9 @@ async def auto_discover_groups():
     global monitored_groups
     print("🔍 Akkauntdagi guruhlarni yuklab olish...")
     try:
+        existing_groups = load_groups()
+        public_links = [g for g in existing_groups if isinstance(g, str)]
+        
         found_groups = set()
         group_info = []  # Guruh nomi va ID ni saqlash uchun
         
@@ -129,7 +132,7 @@ async def auto_discover_groups():
                 logger.debug(f"Guruh topishda xatolik: {e}")
                 continue
         
-        monitored_groups = sorted(found_groups)
+        monitored_groups = sorted(list(found_groups)) + public_links
         save_groups(monitored_groups)
         print(f"\n✅ Saqlandi: {len(monitored_groups)} ta guruh (groups.json)")
         print(f"⚠️  Buyurtma guruhi kuzatilmaydi: {ORDER_GROUP_ID}\n")
@@ -398,7 +401,7 @@ async def handler(event):
     # Guruh va lichkadan kelgan xabarlarni qabul qilish
     is_private = event.is_private
     is_source_group = event.is_group and event.chat_id == SOURCE_GROUP_ID
-    is_monitored_group = event.is_group and event.chat_id in monitored_groups
+    is_monitored_group = event.is_group and (event.chat_id in monitored_groups or getattr(event, 'is_polled_group', False))
     
     # BUYURTMA GURUHINI BUNDAN TASHQARI QILISH - xabarlarni kuzatmasin va zakazni yubormasin
     if event.is_group and event.chat_id == ORDER_GROUP_ID:
@@ -733,6 +736,58 @@ async def handler(event):
         logger.error(f"Zakaz yuborishda umumiy xatolik: {e}")
         print(f"❌ Zakaz yuborishda umumiy xatolik: {e}")
 
+async def poll_public_groups():
+    last_msg_ids = {}
+    me = await client.get_me()
+    bot_id = int(BOT_TOKEN.split(':')[0])
+    
+    print("🔄 Public groups polling started...")
+    while True:
+        try:
+            public_links = [g for g in monitored_groups if isinstance(g, str)]
+            for link in public_links:
+                try:
+                    peer = link
+                    if "t.me/" in link:
+                        peer = link.split("t.me/")[1].split("/")[0]
+                    elif "telegram.me/" in link:
+                        peer = link.split("telegram.me/")[1].split("/")[0]
+                    
+                    if not peer:
+                        continue
+                        
+                    messages = await client.get_messages(peer, limit=5)
+                    if not messages:
+                        continue
+                        
+                    messages.reverse()
+                    for msg in messages:
+                        if not msg or not getattr(msg, 'text', None):
+                            continue
+                            
+                        chat_id_str = str(peer)
+                        if chat_id_str not in last_msg_ids:
+                            last_msg_ids[chat_id_str] = msg.id
+                            continue
+                            
+                        if msg.id > last_msg_ids[chat_id_str]:
+                            last_msg_ids[chat_id_str] = msg.id
+                            
+                            # Mock it as an event to pass to handler
+                            msg.action = None
+                            msg.is_private = False
+                            msg.is_group = True
+                            msg.is_polled_group = True
+                            
+                            # Safely pass to handler
+                            await handler(msg)
+                except Exception as e:
+                    pass
+        except Exception as e:
+            pass
+        
+        await asyncio.sleep(10)
+
 async def main():
     print("\n" + "="*60)
     print("🤖 USERBOT ISHGA TUSHMOQDA...")
@@ -759,6 +814,9 @@ async def main():
         
         # Guruhlarni avtomatik yuklab olish
         await auto_discover_groups()
+        
+        # Public guruhlarni tekshirish uchun task
+        client.loop.create_task(poll_public_groups())
         
         print("🔑 Kalit so'zlarni yuklash...")
         
