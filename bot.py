@@ -306,35 +306,41 @@ def groups_menu(page=0):
     data = get_groups_page(page)
     groups = data['groups']
     current_page = data['page']
-    total_pages = data['total_pages']
+    total = data['total']
+    total_pages = max(data['total_pages'], 1)  # kamida 1 sahifa
     
     buttons = []
     
     # Guruhlarni ko'rsatish
     for i, group_id in enumerate(groups):
+        label = str(group_id)
+        # Uzun linkni qisqartirish
+        if len(label) > 35:
+            label = label[:32] + "..."
         buttons.append([InlineKeyboardButton(
-            text=f"🗑️ {group_id}",
+            text=f"🗑️ {label}",
             callback_data=f"delete_group_{group_id}"
         )])
     
-    # Pagination tugmalari
-    nav_buttons = []
-    if current_page > 0:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"groups_page_{current_page-1}"))
-    
-    nav_buttons.append(InlineKeyboardButton(text=f"📄 {current_page+1}/{total_pages}", callback_data="groups_info"))
-    
-    if current_page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"groups_page_{current_page+1}"))
-    
-    if nav_buttons:
-        buttons.append(nav_buttons)
+    # Pagination tugmalari (faqat guruhlar bo'lganda)
+    if total > 0:
+        nav_buttons = []
+        if current_page > 0:
+            nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"groups_page_{current_page-1}"))
+        
+        nav_buttons.append(InlineKeyboardButton(text=f"📄 {current_page+1}/{total_pages}", callback_data="groups_info"))
+        
+        if current_page < total_pages - 1:
+            nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"groups_page_{current_page+1}"))
+        
+        if nav_buttons:
+            buttons.append(nav_buttons)
     
     # Yangi guruh qo'shish tugmasi
     buttons.append([InlineKeyboardButton(text="➕ Yangi guruh qo'shish", callback_data="add_new_group")])
     
-    # Orqaga tugmasi
-    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
+    # Orqaga tugmasi - asosiy menuga qaytadi
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_main_menu")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -768,6 +774,17 @@ async def back_main(callback: types.CallbackQuery):
         "📝 Qaysi turdagi so'zlar qo'shasiz?",
         reply_markup=words_menu()
     )
+
+@dp.callback_query(lambda c: c.data == "back_to_main_menu")
+async def back_to_main_menu(callback: types.CallbackQuery):
+    if callback.from_user.id in user_states:
+        del user_states[callback.from_user.id]
+    await callback.message.delete()
+    await callback.message.answer(
+        "🤖 Userbot boshqaruv paneli\n\nQuyidagi tugmalardan birini tanlang:",
+        reply_markup=main_menu()
+    )
+    await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("block_"))
 async def block_user_callback(callback: types.CallbackQuery):
