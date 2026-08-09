@@ -994,8 +994,8 @@ async def send_taxi_order_simple(message, user, phone):
         f"<b>Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
         f"<b>Telefon:</b>\n📞 {phone}\n\n"
         f"<b>Yo'nalish:</b>\n🚗 {user_data['from_city']} ➡️ {user_data['to_city']}\n\n"
-        f'<b>Yo\'lovchilar:</b>\n👥 {user_data.get("passenger_count", "Noma'lum")}\n\n'
-        f'<b>Vaqt:</b>\n🕐 {user_data.get("departure_time", "Noma'lum")}'
+        f"<b>Yo'lovchilar:</b>\n👥 {user_data.get('passenger_count', 'Nomaʼlum')}\n\n"
+        f"<b>Vaqt:</b>\n🕐 {user_data.get('departure_time', 'Nomaʼlum')}"
     )
     
     # Telefon raqamni formatlash
