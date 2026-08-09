@@ -31,7 +31,6 @@ def get_db_connection():
     conn = None
     try:
         conn = sqlite3.connect('zakazlar.db', timeout=30)
-        conn.execute('PRAGMA journal_mode=WAL')
         yield conn
     except Exception as e:
         if conn:
@@ -148,7 +147,7 @@ async def send_userbot_message(user_id: int, text: str) -> bool:
 
 # Ma'lumotlar bazasini ishga tushirish
 def init_keywords_db():
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS keywords (
@@ -361,7 +360,7 @@ async def start_handler(message: types.Message):
 
 @dp.message(lambda message: message.text == "📊 Statistika")
 async def stats_handler(message: types.Message):
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     
     cursor.execute("SELECT COUNT(*) FROM zakazlar")
@@ -388,7 +387,7 @@ async def stats_handler(message: types.Message):
 
 @dp.message(lambda message: message.text == "📋 Guruh statistikasi")
 async def group_stats_handler(message: types.Message):
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -415,7 +414,7 @@ async def group_stats_handler(message: types.Message):
 
 @dp.message(lambda message: message.text == "🕜 Oxirgi 10 ta zakaz")
 async def passengers_only_handler(message: types.Message):
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     
     # Фақат йўловчилар филтри - user_type орқали
@@ -1352,7 +1351,7 @@ async def handle_text_message(message: types.Message):
 async def search_user_func(message: types.Message):
     search_term = message.text.strip()
     
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     
     # Chat ID orqali qidirish
@@ -1485,7 +1484,7 @@ def save_groups(groups):
 
 def load_order_groups():
     try:
-        conn = sqlite3.connect('zakazlar.db')
+        conn = sqlite3.connect('zakazlar.db', timeout=30)
         cursor = conn.cursor()
         cursor.execute('SELECT group_id FROM order_groups')
         groups = [row[0] for row in cursor.fetchall()]
@@ -1495,7 +1494,7 @@ def load_order_groups():
         return []
 
 def save_order_group(group_id):
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     cursor.execute('INSERT OR REPLACE INTO order_groups (group_id) VALUES (?)', (group_id,))
     conn.commit()
@@ -1619,7 +1618,7 @@ async def order_group_info_handler(callback: types.CallbackQuery):
     ORDER_GROUP_ID = os.getenv('ORDER_GROUP_ID')
     
     # Buyurtma guruhidagi zakazlar soni
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM zakazlar")
     total_orders = cursor.fetchone()[0]
@@ -1637,7 +1636,7 @@ async def order_group_info_handler(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "list_blocked")
 async def list_blocked_handler(callback: types.CallbackQuery):
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     cursor.execute('SELECT user_id FROM blocked_users')
     blocked = [str(row[0]) for row in cursor.fetchall()]

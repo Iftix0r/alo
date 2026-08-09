@@ -30,7 +30,6 @@ def get_db_connection():
     conn = None
     try:
         conn = sqlite3.connect('zakazlar.db', timeout=30)
-        conn.execute('PRAGMA journal_mode=WAL')
         yield conn
     except Exception as e:
         if conn:
@@ -274,7 +273,7 @@ def is_user_blocked(user_id):
         return False
 
 def save_user_and_zakaz(user_id, user_name, username, phone, user_type, message, group_name, group_id):
-    conn = sqlite3.connect('zakazlar.db')
+    conn = sqlite3.connect('zakazlar.db', timeout=30)
     cursor = conn.cursor()
     
     # Foydalanuvchini saqlash yoki yangilash
@@ -766,7 +765,7 @@ async def main():
         
         print("📊 Statistikani hisoblash...")
         # Bazadagi statistikani ko'rsatish
-        conn = sqlite3.connect('zakazlar.db')
+        conn = sqlite3.connect('zakazlar.db', timeout=30)
         cursor = conn.cursor()
         
         cursor.execute("SELECT COUNT(*) FROM zakazlar WHERE user_type LIKE '%Yolovchi%'")
@@ -809,7 +808,7 @@ async def main():
         @client.on(events.NewMessage(pattern='/blocked'))
         async def list_blocked(event):
             if event.is_private:
-                conn = sqlite3.connect('zakazlar.db')
+                conn = sqlite3.connect('zakazlar.db', timeout=30)
                 cursor = conn.cursor()
                 cursor.execute('SELECT user_id FROM blocked_users')
                 blocked = [str(row[0]) for row in cursor.fetchall()]
