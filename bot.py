@@ -249,9 +249,11 @@ def accounts_menu():
 def words_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Yo'lovchi so'zi qo'shish", callback_data="add_passenger")],
+            [InlineKeyboardButton(text="➖ Yo'lovchi so'zi o'chirish", callback_data="delete_passenger")],
             [InlineKeyboardButton(text="🚗 Haydovchi so'zi qo'shish", callback_data="add_driver")],
             [InlineKeyboardButton(text="❌ Haydovchi so'zi o'chirish", callback_data="delete_driver")],
-            [InlineKeyboardButton(text="📋 Haydovchi so'zlari", callback_data="list_words")],
+            [InlineKeyboardButton(text="📋 Barcha so'zlar", callback_data="list_words")],
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")]
         ]
     )
@@ -272,7 +274,7 @@ def load_monitored_groups():
         with open('groups.json', 'r') as f:
             data = json.load(f)
             if isinstance(data, list):
-                return [g for g in data if isinstance(g, (int, str))]
+                return [g for g in data if isinstance(g, int)]
             return []
     except:
         return []
@@ -306,41 +308,35 @@ def groups_menu(page=0):
     data = get_groups_page(page)
     groups = data['groups']
     current_page = data['page']
-    total = data['total']
-    total_pages = max(data['total_pages'], 1)  # kamida 1 sahifa
+    total_pages = data['total_pages']
     
     buttons = []
     
     # Guruhlarni ko'rsatish
     for i, group_id in enumerate(groups):
-        label = str(group_id)
-        # Uzun linkni qisqartirish
-        if len(label) > 35:
-            label = label[:32] + "..."
         buttons.append([InlineKeyboardButton(
-            text=f"🗑️ {label}",
+            text=f"🗑️ {group_id}",
             callback_data=f"delete_group_{group_id}"
         )])
     
-    # Pagination tugmalari (faqat guruhlar bo'lganda)
-    if total > 0:
-        nav_buttons = []
-        if current_page > 0:
-            nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"groups_page_{current_page-1}"))
-        
-        nav_buttons.append(InlineKeyboardButton(text=f"📄 {current_page+1}/{total_pages}", callback_data="groups_info"))
-        
-        if current_page < total_pages - 1:
-            nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"groups_page_{current_page+1}"))
-        
-        if nav_buttons:
-            buttons.append(nav_buttons)
+    # Pagination tugmalari
+    nav_buttons = []
+    if current_page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"groups_page_{current_page-1}"))
+    
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {current_page+1}/{total_pages}", callback_data="groups_info"))
+    
+    if current_page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"groups_page_{current_page+1}"))
+    
+    if nav_buttons:
+        buttons.append(nav_buttons)
     
     # Yangi guruh qo'shish tugmasi
     buttons.append([InlineKeyboardButton(text="➕ Yangi guruh qo'shish", callback_data="add_new_group")])
     
-    # Orqaga tugmasi - asosiy menuga qaytadi
-    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_main_menu")])
+    # Orqaga tugmasi
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_main")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -362,16 +358,6 @@ async def start_handler(message: types.Message):
             reply_markup=direction_menu(),
             parse_mode='HTML'
         )
-
-@dp.message(Command("admin"))
-async def admin_handler(message: types.Message):
-    if is_admin(message.from_user.id):
-        await message.answer(
-            "🔧 Admin Panel:",
-            reply_markup=admin_menu()
-        )
-    else:
-        await message.answer("❌ Sizga ruxsat yo'q!")
 
 @dp.message(lambda message: message.text == "📊 Statistika")
 async def stats_handler(message: types.Message):
@@ -629,8 +615,8 @@ def departure_menu():
 def direction_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="𝗦𝗔𝗠𝗔𝗥𝗤𝗔𝗡𝗗 ➡️ 𝗙𝗔𝗥𝗚'𝗢𝗡𝗔", callback_data="dir_samarqand_fargona")],
-            [InlineKeyboardButton(text="𝗙𝗔𝗥𝗚'𝗢𝗡𝗔 ➡️ 𝗦𝗔𝗠𝗔𝗥𝗤𝗔𝗡𝗗", callback_data="dir_fargona_samarqand")]
+            [InlineKeyboardButton(text="𝗧𝗢𝗦𝗛𝗞𝗘𝗡𝗧 ➡️ 𝗣𝗢𝗣 𝗖𝗛𝗨𝗦𝗧", callback_data="dir_namangan_toshkent")],
+            [InlineKeyboardButton(text="𝗣𝗢𝗣 𝗖𝗛𝗨𝗦𝗧 ➡️ 𝗧𝗢𝗦𝗛𝗞𝗘𝗡𝗧", callback_data="dir_toshkent_namangan")]
         ]
     )
     return keyboard
@@ -695,11 +681,7 @@ async def delete_group_handler(callback: types.CallbackQuery):
         await callback.answer("❌ Sizga ruxsat yo'q!", show_alert=True)
         return
     
-    raw_id = callback.data.replace("delete_group_", "")
-    try:
-        group_id = int(raw_id)
-    except ValueError:
-        group_id = raw_id
+    group_id = int(callback.data.split("_")[2])
     groups = load_monitored_groups()
     
     if group_id in groups:
@@ -730,8 +712,8 @@ async def add_new_group_handler(callback: types.CallbackQuery):
     user_states[callback.from_user.id] = 'waiting_group_id'
     await callback.message.edit_text(
         "➕ Yangi guruh qo'shish\n\n"
-        "Guruh ID yoki havolasini yuboring:\n"
-        "Masalan: -1003417191538 yoki t.me/guruh_nomi"
+        "Guruh ID sini yuboring:\n"
+        "Masalan: -1003417191538"
     )
     await callback.answer()
 
@@ -742,6 +724,15 @@ async def add_driver_words(callback: types.CallbackQuery):
         "🚗 Haydovchi so'zlarini qo'shish:\n\n"
         "So'zlarni vergul bilan ajratib yozing:\n"
         "Masalan: ketaman, boraman, olib ketaman"
+    )
+
+@dp.callback_query(lambda c: c.data == "add_passenger")
+async def add_passenger_words(callback: types.CallbackQuery):
+    user_states[callback.from_user.id] = 'waiting_passenger_words'
+    await callback.message.edit_text(
+        "🙋♂️ Yo'lovchi so'zlarini qo'shish:\n\n"
+        "So'zlarni vergul bilan ajratib yozing:\n"
+        "Masalan: kerak, ketish kerak, olib keting"
     )
 
 @dp.callback_query(lambda c: c.data == "delete_driver")
@@ -756,35 +747,36 @@ async def delete_driver_words(callback: types.CallbackQuery):
     else:
         await callback.message.edit_text("📭 Haydovchi so'zlari yo'q")
 
+@dp.callback_query(lambda c: c.data == "delete_passenger")
+async def delete_passenger_words(callback: types.CallbackQuery):
+    user_states[callback.from_user.id] = 'waiting_delete_passenger_words'
+    passenger_words = get_keywords('passenger')
+    if passenger_words:
+        words_text = "\n".join([f"{i+1}. {word}" for i, word in enumerate(passenger_words)])
+        await callback.message.edit_text(
+            f"🙋♂️ Yo'lovchi so'zlarini o'chirish:\n\n{words_text}\n\nO'chirish uchun so'zni yozing:"
+        )
+    else:
+        await callback.message.edit_text("📭 Yo'lovchi so'zlari yo'q")
 
 @dp.callback_query(lambda c: c.data == "list_words")
 async def list_words(callback: types.CallbackQuery):
+    passenger_words = get_keywords('passenger')
     driver_words = get_keywords('driver')
     
-    text = f"🚗 Haydovchi so'zlari ({len(driver_words)}):\n\n"
+    text = f"📋 Yo'lovchi so'zlari ({len(passenger_words)}):\n\n"
+    text += ", ".join(passenger_words) if passenger_words else "Yo'q"
+    text += f"\n\n🚗 Haydovchi so'zlari ({len(driver_words)}):\n\n"
     text += ", ".join(driver_words) if driver_words else "Yo'q"
     
     await callback.message.edit_text(text)
 
 @dp.callback_query(lambda c: c.data == "back_main")
 async def back_main(callback: types.CallbackQuery):
-    if callback.from_user.id in user_states:
-        del user_states[callback.from_user.id]
     await callback.message.edit_text(
-        "📝 Qaysi turdagi so'zlar qo'shasiz?",
-        reply_markup=words_menu()
+        "🤖 Userbot boshqaruv paneli\n\n"
+        "Quyidagi tugmalardan birini tanlang:"
     )
-
-@dp.callback_query(lambda c: c.data == "back_to_main_menu")
-async def back_to_main_menu(callback: types.CallbackQuery):
-    if callback.from_user.id in user_states:
-        del user_states[callback.from_user.id]
-    await callback.message.delete()
-    await callback.message.answer(
-        "🤖 Userbot boshqaruv paneli\n\nQuyidagi tugmalardan birini tanlang:",
-        reply_markup=main_menu()
-    )
-    await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("block_"))
 async def block_user_callback(callback: types.CallbackQuery):
@@ -797,7 +789,8 @@ async def block_user_callback(callback: types.CallbackQuery):
             conn.commit()
         
         await callback.answer(f"✅ Foydalanuvchi bloklandi: {user_id}")
-        await callback.message.delete()
+        # Xabarni yangilash
+        await callback.message.edit_reply_markup(reply_markup=None)
     except ValueError:
         await callback.answer("❌ Noto'g'ri foydalanuvchi ID")
     except Exception as e:
@@ -869,12 +862,12 @@ async def reply_user_callback(callback: types.CallbackQuery):
 async def direction_handler(callback: types.CallbackQuery):
     direction = callback.data.replace("dir_", "")
     
-    if direction == "samarqand_fargona":
-        from_city = "SAMARQAND"
-        to_city = "FARG'ONA"
-    elif direction == "fargona_samarqand":
-        from_city = "FARG'ONA"
-        to_city = "SAMARQAND"
+    if direction == "namangan_toshkent":
+        from_city = "TOSHKENT"
+        to_city = "POP CHUST"
+    elif direction == "toshkent_namangan":
+        from_city = "POP CHUST"
+        to_city = "TOSHKENT"
     else:
         from_city = "Noma'lum"
         to_city = "Noma'lum"
@@ -998,7 +991,7 @@ async def send_taxi_order_simple(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b>Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
+        f"<b></b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
         f"<b>Telefon:</b>\n📞 {phone}\n\n"
         f"<b>Yo'nalish:</b>\n🚗 {user_data['from_city']} ➡️ {user_data['to_city']}\n\n"
         f'<b>Yo\'lovchilar:</b>\n👥 {user_data.get("passenger_count", "Noma'lum")}\n\n'
@@ -1029,10 +1022,6 @@ async def send_taxi_order_simple(message, user, phone):
             parse_mode='HTML',
             reply_markup=order_keyboard
         )
-        
-        # Userbot orqali qisqa xabar (Lichka havolasi)
-        short_msg = f"<b>Mijoz lichkasi:</b> <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>"
-        await send_userbot_message(ORDER_GROUP_ID, short_msg)
         
         # Qo'shimcha guruhlarga yubormaslik - faqat asosiy guruhga yuborish
         
@@ -1095,7 +1084,7 @@ async def send_taxi_order(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b>Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
+        f"<b>Muboradi Mijoz Ismi:</b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
         f"<b>Telefon:</b>\n📞 {formatted_phone}\n\n"
         f"<b>Qayerga:</b>\n🎯 {user_data['destination']}"
     )
@@ -1109,10 +1098,6 @@ async def send_taxi_order(message, user, phone):
             parse_mode='HTML',
             reply_markup=order_keyboard
         )
-        
-        # Userbot orqali qisqa xabar (Lichka havolasi)
-        short_msg = f"<b>Mijoz lichkasi:</b> <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>"
-        await send_userbot_message(ORDER_GROUP_ID, short_msg)
         
         # 2. Joylashuvni yuborish - FAQAT ORDER_GROUP_ID GA
         if "latitude" in user_data and "longitude" in user_data:
@@ -1157,40 +1142,14 @@ async def send_taxi_order(message, user, phone):
 
 @dp.message(lambda message: message.text == "🔍 Qidiruv")
 async def search_handler(message: types.Message):
-    if message.chat.type != 'private' or not is_admin(message.from_user.id):
+    if not is_admin(message.from_user.id):
         return
     user_states[message.from_user.id] = 'waiting_search_query'
     await message.answer("🔍 Qidiruv uchun:\n\n👤 Foydalanuvchi ismini yoki\n🆔 Chat ID raqamini yozing:")
 
 @dp.message(lambda message: message.text and not message.text.startswith('/') and not message.text in ["📊 Statistika", "📝 So'zlar qo'shish", "⚙️ Sozlamalar", "🔍 Qidiruv", "🕜 Oxirgi 10 ta zakaz", "📋 Guruh statistikasi"])
 async def handle_text_message(message: types.Message):
-    if message.chat.type != 'private':
-        return
     user_id = message.from_user.id
-    
-    # Kuzatiladigan guruh ID/link qo'shish
-    if user_states.get(user_id) == 'waiting_group_id':
-        text = message.text.strip()
-        groups = load_monitored_groups()
-        try:
-            group_id = int(text)
-        except ValueError:
-            group_id = text  # Link yoki username sifatida saqlash
-        
-        if group_id in groups:
-            await message.answer("⚠️ Bu guruh allaqachon mavjud!")
-        else:
-            groups.append(group_id)
-            if save_monitored_groups(groups):
-                await message.answer(
-                    f"✅ Guruh qo'shildi: {group_id}\n\n"
-                    f"👥 Jami kuzatilayotgan guruhlar: {len(groups)} ta",
-                    reply_markup=groups_menu(0)
-                )
-            else:
-                await message.answer("❌ Saqlashda xatolik!")
-        user_states.pop(user_id, None)
-        return
     
     # Taksi foydalanuvchilari uchun holatlar
     if user_id in user_states:
@@ -1253,46 +1212,22 @@ async def handle_text_message(message: types.Message):
             await message.answer(f"✅ {len(words)} ta yo'lovchi so'zi qo'shildi!")
             return
         elif user_states[user_id] == 'waiting_delete_driver_words':
-            inputs = [w.strip() for w in message.text.split(',') if w.strip()]
+            words = [w.strip() for w in message.text.split(',') if w.strip()]
             driver_words = get_keywords('driver')
             deleted, not_found = [], []
-            for inp in inputs:
-                # Raqam bo'lsa — tartib raqami bo'yicha o'chirish
-                if inp.isdigit():
-                    idx = int(inp) - 1
-                    if 0 <= idx < len(driver_words):
-                        word = driver_words[idx]
-                        delete_keyword('driver', word)
-                        deleted.append(word)
-                    else:
-                        not_found.append(inp)
+            for word in words:
+                if word in driver_words:
+                    delete_keyword('driver', word)
+                    deleted.append(word)
                 else:
-                    if inp in driver_words:
-                        delete_keyword('driver', inp)
-                        deleted.append(inp)
-                    else:
-                        not_found.append(inp)
+                    not_found.append(word)
             result = []
             if deleted:
-                result.append(f"✅ O'chirildi: {', '.join(deleted)}")
+                result.append(f"❌ O'chirildi: {', '.join(deleted)}")
             if not_found:
                 result.append(f"⚠️ Topilmadi: {', '.join(not_found)}")
-            
-            msg_text = '\n'.join(result) if result else "⚠️ Hech narsa o'chirilmadi"
-            driver_words = get_keywords('driver')
-            
-            if driver_words:
-                words_text = "\n".join([f"{i+1}. {word}" for i, word in enumerate(driver_words)])
-                msg_text += f"\n\n🚗 Qolgan haydovchi so'zlari:\n{words_text}\n\nYana o'chirish uchun so'zni (yoki raqamini) yuboring.\nBekor qilish uchun tugmani bosing."
-            else:
-                msg_text += "\n\n📭 Haydovchi so'zlari qolmadi."
-                if user_id in user_states:
-                    del user_states[user_id]
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="back_main")]
-            ])
-            await message.answer(msg_text, reply_markup=keyboard)
+            await message.answer('\n'.join(result))
+            del user_states[user_id]
             return
         elif user_states[user_id] == 'waiting_delete_passenger_words':
             words = [w.strip() for w in message.text.split(',') if w.strip()]
@@ -1392,6 +1327,7 @@ async def handle_text_message(message: types.Message):
         elif user_states[user_id] == 'waiting_fast_group_id':
             try:
                 fast_id = int(message.text.strip())
+                # .env faylini yangilash
                 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
                 with open(env_path, 'r') as f:
                     content = f.read()
@@ -1408,38 +1344,10 @@ async def handle_text_message(message: types.Message):
                 await message.answer("❌ Noto'g'ri format! Raqam kiriting.")
             del user_states[user_id]
             return
-
-        elif user_states[user_id] == 'waiting_broadcast_message':
-            if message.text == '/cancel':
-                await message.answer("Barchaga xabar yuborish bekor qilindi.")
-                del user_states[user_id]
-                return
-            
-            message_to_send = message.text
-            sent_msg = await message.answer("⏳ Xabar yuborilmoqda, iltimos kuting...")
-            try:
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT DISTINCT user_id FROM users WHERE user_id IS NOT NULL AND user_id != 0")
-                    users = cursor.fetchall()
-                
-                sent_count = 0
-                for user_row in users:
-                    uid = user_row[0]
-                    try:
-                        await bot.send_message(chat_id=uid, text=message_to_send)
-                        sent_count += 1
-                        await asyncio.sleep(0.05)
-                    except Exception:
-                        pass
-                
-                await sent_msg.edit_text(f"✅ Xabar muvaffaqiyatli {sent_count} ta foydalanuvchiga yuborildi.")
-            except Exception as e:
-                await sent_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
-            del user_states[user_id]
-            return
     
-    # Admin uchun qidiruv faqat waiting_search_query holati orqali ishlaydi
+    # Qidiruv funksiyasi - faqat admin uchun
+    if is_admin(message.from_user.id):
+        await search_user_func(message)
 
 async def search_user_func(message: types.Message):
     search_term = message.text.strip()
@@ -1636,17 +1544,13 @@ def admin_menu():
     )
     return keyboard
 
-# Admin panel - guruh sozlamalari menu (bu alohida funksiya)
-def admin_groups_menu():
-    fast_id = os.getenv('FAST_GROUP_ID', '0')
-    fast_enabled = fast_id and fast_id != '0'
-    fast_toggle_text = "⚡ Fast guruh: ✅ Yoqilgan" if fast_enabled else "⚡ Fast guruh: ❌ O'chirilgan"
+# Groups menu
+def groups_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📤 Buyurtma guruhlari", callback_data="list_order_groups")],
             [InlineKeyboardButton(text="➕ Buyurtma guruh qo'shish", callback_data="add_order_group_prompt")],
             [InlineKeyboardButton(text="➖ Buyurtma guruh o'chirish", callback_data="remove_order_group_prompt")],
-            [InlineKeyboardButton(text=fast_toggle_text, callback_data="toggle_fast_group")],
             [InlineKeyboardButton(text="⚡ Fast guruh ID ko'rish", callback_data="show_fast_group")],
             [InlineKeyboardButton(text="✏️ Fast guruh ID o'zgartirish", callback_data="set_fast_group")],
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_menu")]
@@ -1658,8 +1562,6 @@ def admin_groups_menu():
 def users_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Foydalanuvchilar statistikasi", callback_data="user_statistics")],
-            [InlineKeyboardButton(text="📢 Barchaga xabar yuborish", callback_data="broadcast_prompt")],
             [InlineKeyboardButton(text="🚫 Bloklangan foydalanuvchilar", callback_data="list_blocked")],
             [InlineKeyboardButton(text="🚫 Foydalanuvchini bloklash", callback_data="block_user_prompt")],
             [InlineKeyboardButton(text="✅ Blokdan chiqarish", callback_data="unblock_user_prompt")],
@@ -1693,7 +1595,7 @@ async def admin_menu_handler(callback: types.CallbackQuery):
 async def groups_menu_handler(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "📋 Guruh boshqaruvi:",
-        reply_markup=admin_groups_menu()
+        reply_markup=groups_menu()
     )
 
 @dp.callback_query(lambda c: c.data == "users_menu")
@@ -1778,26 +1680,6 @@ def unblock_user(user_id):
         logger.error(f"Error unblocking user {user_id}: {e}")
         raise
 
-@dp.callback_query(lambda c: c.data == "toggle_fast_group")
-async def toggle_fast_group_handler(callback: types.CallbackQuery):
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-    current = os.getenv('FAST_GROUP_ID', '0')
-    import re as _re
-    with open(env_path, 'r') as f:
-        content = f.read()
-    if current and current != '0':
-        # O'chirish - 0 ga o'rnatish
-        if 'FAST_GROUP_ID' in content:
-            content = _re.sub(r'FAST_GROUP_ID=.*', 'FAST_GROUP_ID=0', content)
-        with open(env_path, 'w') as f:
-            f.write(content)
-        os.environ['FAST_GROUP_ID'] = '0'
-        await callback.answer("❌ Fast guruh o'chirildi", show_alert=True)
-    else:
-        await callback.answer("⚠️ Avval Fast guruh ID ni o'rnating", show_alert=True)
-        return
-    await callback.message.edit_text("📋 Guruh boshqaruvi:", reply_markup=groups_menu())
-
 @dp.callback_query(lambda c: c.data == "show_fast_group")
 async def show_fast_group_handler(callback: types.CallbackQuery):
     fid = os.getenv('FAST_GROUP_ID', 'Sozlanmagan')
@@ -1858,43 +1740,6 @@ async def list_admins_handler(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"Adminlar ro'yxatini olishda xatolik: {e}")
         await callback.message.edit_text("❌ Xatolik yuz berdi")
-
-@dp.callback_query(lambda c: c.data == "user_statistics")
-async def user_statistics_handler(callback: types.CallbackQuery):
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM users WHERE user_id IS NOT NULL AND user_id != 0")
-            total_users = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM users WHERE DATE(first_seen) = DATE('now') AND user_id IS NOT NULL AND user_id != 0")
-            today_new_users = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM blocked_users")
-            blocked_users = cursor.fetchone()[0]
-            
-        text = (
-            "📊 <b>Foydalanuvchilar statistikasi:</b>\n\n"
-            f"👥 Jami ro'yxatdan o'tganlar: <b>{total_users}</b>\n"
-            f"🆕 Bugun qo'shilganlar: <b>{today_new_users}</b>\n"
-            f"🚫 Bloklanganlar: <b>{blocked_users}</b>"
-        )
-        await callback.message.edit_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="users_menu")]]))
-    except Exception as e:
-        logger.error(f"Statistika xatolik: {e}")
-        await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
-
-@dp.callback_query(lambda c: c.data == "broadcast_prompt")
-async def broadcast_prompt_handler(callback: types.CallbackQuery):
-    user_states[callback.from_user.id] = 'waiting_broadcast_message'
-    await callback.message.edit_text(
-        "📢 <b>Xabar yuborish:</b>\n\n"
-        "Barcha foydalanuvchilarga yuboriladigan xabarni kiriting.\n"
-        "(Bekor qilish uchun /cancel yuboring)",
-        parse_mode='HTML',
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="users_menu")]])
-    )
 
 async def send_demo_orders():
     """Bot ishga tushganda 10 ta demo zakaz yuborish"""
@@ -2002,31 +1847,29 @@ async def text_message_handler(message: types.Message):
     
     # Yangi guruh ID qo'shish
     if user_states.get(user_id) == 'waiting_group_id':
-        text = message.text.strip()
-        groups = load_monitored_groups()
-        
         try:
-            group_id = int(text)
-        except ValueError:
-            group_id = text
+            group_id = int(message.text)
+            groups = load_monitored_groups()
             
-        if group_id in groups:
-            await message.answer(f"⚠️ Bu guruh allaqachon mavjud!")
-        else:
-            groups.append(group_id)
-            if save_monitored_groups(groups):
-                await message.answer(f"✅ Guruh qo'shildi: {group_id}")
-                
-                # Yangilangan ro'yxatni ko'rsatish
-                data = get_groups_page(0)
-                text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
-                text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
-                
-                await message.answer(text, reply_markup=groups_menu(0))
+            if group_id in groups:
+                await message.answer(f"⚠️ Bu guruh allaqachon mavjud!")
             else:
-                await message.answer("❌ Saqlashda xatolik!")
-        
-        user_states.pop(user_id, None)
+                groups.append(group_id)
+                if save_monitored_groups(groups):
+                    await message.answer(f"✅ Guruh qo'shildi: {group_id}")
+                    
+                    # Yangilangan ro'yxatni ko'rsatish
+                    data = get_groups_page(0)
+                    text = f"👥 Kuzatilayotgan guruhlar: {data['total']} ta\n\n"
+                    text += "🗑️ Tugmani bosing - guruhni o'chirish\n"
+                    
+                    await message.answer(text, reply_markup=groups_menu(0))
+                else:
+                    await message.answer("❌ Saqlashda xatolik!")
+            
+            user_states.pop(user_id, None)
+        except ValueError:
+            await message.answer("❌ Noto'g'ri format! Raqam yuboring.\nMasalan: -1003417191538")
 
 async def main():
     print("🤖 Bot ishga tushmoqda...")

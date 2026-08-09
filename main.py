@@ -7,9 +7,7 @@ import os
 import json
 import sqlite3
 import re
-import time
 import logging
-from datetime import date
 from dotenv import load_dotenv
 from contextlib import contextmanager
 
@@ -57,7 +55,7 @@ def load_groups():
         with open('groups.json', 'r') as f:
             data = json.load(f)
             if isinstance(data, list):
-                return [g for g in data if isinstance(g, (int, str))]
+                return [g for g in data if isinstance(g, int)]
             return []
     except:
         return []
@@ -71,9 +69,6 @@ async def auto_discover_groups():
     global monitored_groups
     print("🔍 Akkauntdagi guruhlarni yuklab olish...")
     try:
-        existing_groups = load_groups()
-        public_links = [g for g in existing_groups if isinstance(g, str)]
-        
         found_groups = set()
         group_info = []  # Guruh nomi va ID ni saqlash uchun
         
@@ -132,7 +127,7 @@ async def auto_discover_groups():
                 logger.debug(f"Guruh topishda xatolik: {e}")
                 continue
         
-        monitored_groups = sorted(list(found_groups)) + public_links
+        monitored_groups = sorted(found_groups)
         save_groups(monitored_groups)
         print(f"\n✅ Saqlandi: {len(monitored_groups)} ta guruh (groups.json)")
         print(f"⚠️  Buyurtma guruhi kuzatilmaydi: {ORDER_GROUP_ID}\n")
@@ -312,15 +307,9 @@ def save_user_and_zakaz(user_id, user_name, username, phone, user_type, message,
     
     return next_order_number
 
-import time
-from datetime import date
-
-# Fast guruh uchun rate limit: {user_id: {last, date, count}}
-fast_rate_limit = {}
-
-def is_fast_message(text_content, base_text):
-    """Butun xabar 100 belgidan kam va emoji yo'q bo'lsa fast"""
-    if not text_content or len(text_content) >= 100:
+def is_fast_message(text):
+    """60 belgidan kam, emoji/stiker yo'q matnlarni tekshirish"""
+    if not text or len(text) >= 60:
         return False
     emoji_pattern = re.compile(
         u"[\U0001F300-\U0001FFFF"
@@ -329,28 +318,7 @@ def is_fast_message(text_content, base_text):
         u"\u2600-\u26FF\u2700-\u27BF]+",
         re.UNICODE
     )
-    return not emoji_pattern.search(text_content)
-
-def can_send_to_fast(user_id):
-    """1 foydalanuvchi: 1 daqiqada 1 ta, kunda 3 ta zakaz"""
-    now = time.time()
-    today = date.today().isoformat()
-
-    entry = fast_rate_limit.get(user_id, {"last": 0, "date": "", "count": 0})
-
-    if entry["date"] != today:
-        entry = {"last": 0, "date": today, "count": 0}
-
-    if now - entry["last"] < 60:
-        return False
-
-    if entry["count"] >= 3:
-        return False
-
-    entry["last"] = now
-    entry["count"] += 1
-    fast_rate_limit[user_id] = entry
-    return True
+    return not emoji_pattern.search(text)
 
 
     if not text or not isinstance(text, str):
@@ -401,7 +369,7 @@ async def handler(event):
     # Guruh va lichkadan kelgan xabarlarni qabul qilish
     is_private = event.is_private
     is_source_group = event.is_group and event.chat_id == SOURCE_GROUP_ID
-    is_monitored_group = event.is_group and (event.chat_id in monitored_groups or getattr(event, 'is_polled_group', False))
+    is_monitored_group = event.is_group and event.chat_id in monitored_groups
     
     # BUYURTMA GURUHINI BUNDAN TASHQARI QILISH - xabarlarni kuzatmasin va zakazni yubormasin
     if event.is_group and event.chat_id == ORDER_GROUP_ID:
@@ -436,6 +404,7 @@ async def handler(event):
     if sender is None:
         try:
             sender = await event.get_sender()
+            print(f"🔍 Sender qayta olindi: {sender}")
         except Exception as e:
             logger.debug(f"Sender olishda xatolik (2-urinish): {e}")
             sender = None
@@ -456,12 +425,6 @@ async def handler(event):
     lines = [l.strip() for l in text_content.splitlines() if l.strip()]
     if not lines:
         return
-    
-    # Faqat emoji yoki belgilardan iborat xabarlarni o'tkazib yuborish (harf yoki raqam bo'lishi kerak)
-    import re
-    if not re.search(r'[a-zA-Zа-яА-ЯўЎқҚғҒҳҲ0-9]', text_content):
-        return
-        
     base_text = lines[-1]
     
     # Sender va chat ma'lumotlarini xavfsiz olish
@@ -496,12 +459,13 @@ async def handler(event):
             if sender.id == bot_id:
                 return
             
-            # Bot bo'lsa ignore qilish (Telethon da bot xossasi)
-            if getattr(sender, 'bot', False):
+            # Bot bo'lsa ignore qilish
+            if getattr(sender, 'is_bot', False):
                 logger.debug(f"Bot xabari ignore qilindi: {sender.username or sender.id}")
                 return
                 
             user_id = sender.id
+            print(f"✅ User ID olindi: {user_id}")
             user_name = f"{sender.first_name or 'Nomaʼlum'}"
             if hasattr(sender, 'last_name') and sender.last_name:
                 user_name = f"{sender.first_name} {sender.last_name}"
@@ -517,10 +481,12 @@ async def handler(event):
             print(f"❌ Sender ma'lumotini olishda xatolik: {e}")
             user_info = "Noma'lum foydalanuvchi"
             user_id = 0
-    # Sender yo'q bo'lsa (Kanal yoki anonim admin)
+    # Sender yo'q bo'lsa
     else:
-        print(f"⚠️  Sender yo'q (None) yoki kanal/anonim. Ignore qilinadi.")
-        return
+        print(f"⚠️  Sender yo'q (None)")
+        user_info = "Noma'lum foydalanuvchi"
+        user_id = 0
+        sender = None
     
     user_details = "\n".join(user_details_parts) if user_details_parts else ""
     
@@ -560,23 +526,29 @@ async def handler(event):
     
     # Haydovchi yoki yo'lovchi so'zlari bor xabarlarni olish
     keywords = load_keywords_from_db()
-    text_lower = text_content.lower().strip()
+    text_lower = base_text.lower().strip()
     
+    # Haydovchi so'zlarini tekshirish
     has_driver_words = False
     for word in keywords['driver']:
         if word.lower() in text_lower:
             has_driver_words = True
             break
     
-    sender_name = f"{getattr(sender, 'first_name', '')} {getattr(sender, 'last_name', '') or ''}".strip() if sender else "Noma'lum"
-    chat_display = getattr(chat, 'title', str(event.chat_id)) if chat else str(event.chat_id)
-
+    # Yo'lovchi so'zlarini tekshirish
+    has_passenger_words = False
+    for word in keywords['passenger']:
+        if word.lower() in text_lower:
+            has_passenger_words = True
+            break
+    
+    # Agar haydovchi so'zlari bo'lsa, xabarni ignore qilish
     if has_driver_words:
-        print(f"🚗 [{chat_display}] {sender_name}: haydovchi so'zi — o'tkazib yuborildi")
         return
-
-    # Haydovchi so'zi yo'q — zakaz sifatida qabul qilinadi
-    only_fast = False  # Yo'lovchi so'zlari tizimi olib tashlandi
+    
+    # Agar yo'lovchi so'zlari yo'q bo'lsa, xabarni ignore qilish
+    if not has_passenger_words:
+        return
     
     user_type = '🙋♂️ Yolovchi'
     
@@ -604,21 +576,11 @@ async def handler(event):
     # Haydovchi va yo'lovchilarni bazaga saqlash (bloklangan bo'lsa ham)
     order_number = save_user_and_zakaz(user_id, clean_user_name.strip(), username, phone, user_type, text_content, chat_title, event.chat_id)
     
-    print(f"\n{'='*50}")
-    print(f"📨 YANGI ZAKAZ #{order_number}")
-    print(f"   👤 Foydalanuvchi : {clean_user_name.strip() or 'Noma\'lum'} (ID: {user_id})")
-    print(f"   💬 Xabar        : {base_text[:60]}{'...' if len(base_text) > 60 else ''}")
-    print(f"   🧳 Guruh         : {chat_title}")
-    print(f"   🕒 Vaqt          : {__import__('datetime').datetime.now().strftime('%H:%M:%S')}")
-    if only_fast:
-        print(f"   ⚡ Faqat fast guruh (kalit so'z yo'q)")
-    
 # Agar bloklangan bo'lsa, guruhga yubormaslik va xabarni o'chirish
     if is_blocked:
         try:
             await event.delete()
-            print(f"   🚫 BLOKLANGAN — xabar o'chirildi")
-            print(f"{'='*50}")
+            logger.info(f"Bloklangan foydalanuvchi xabari ochirildi: {user_id}")
         except Exception as e:
             logger.error(f"Bloklangan foydalanuvchi xabarini ochirishda xatolik: {e}")
         return
@@ -626,7 +588,7 @@ async def handler(event):
 
     
     # Xabar tayyorlash - sodda format
-    message_parts = ["🆕 Yangi buyurtma!"]
+    message_parts = []
     
     # Foydalanuvchi ismi - emoji bilan
     if user_info:
@@ -689,104 +651,59 @@ async def handler(event):
     # Faqat admin tugmalari: mijozga yozish va bloklash
     if user_id:
         buttons.append([
+            {"text": "✍️ Mijozga yozish", "callback_data": f"reply_user_{user_id}"}
+        ])
+        buttons.append([
             {"text": "🚫 Bloklash", "callback_data": f"block_{user_id}"}
         ])
 
     try:
-        # Asosiy buyurtma guruhiga yuborish - faqat kalit so'z bor bo'lsa
-        if not only_fast:
-            payload = {
-                "chat_id": ORDER_GROUP_ID,
+        # Asosiy buyurtma guruhiga yuborish - FAQAT BUYURTMA GURUHIGA
+        payload = {
+            "chat_id": ORDER_GROUP_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "reply_markup": {"inline_keyboard": buttons} if buttons else None
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            response = await session.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json=payload
+            )
+            if response.status == 200:
+                print("✅ Asosiy buyurtma guruhiga yuborildi")
+            else:
+                error_text = await response.text()
+                print(f"❌ Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
+                logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
+
+        # Fast guruhga yuborish - 60 belgidan kam, emoji yo'q xabarlar
+        if FAST_GROUP_ID and is_fast_message(base_text):
+            fast_payload = {
+                "chat_id": FAST_GROUP_ID,
                 "text": message,
                 "parse_mode": "HTML",
                 "reply_markup": {"inline_keyboard": buttons} if buttons else None
             }
             async with aiohttp.ClientSession() as session:
-                response = await session.post(
+                resp = await session.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json=payload
+                    json=fast_payload
                 )
-                if response.status == 200:
-                    print(f"   ✅ Buyurtma guruhiga yuborildi")
+                if resp.status == 200:
+                    print("⚡ Fast guruhga yuborildi")
                 else:
-                    error_text = await response.text()
-                    print(f"   ❌ Buyurtma guruhiga yuborishda xatolik: {response.status}")
-                    logger.error(f"Asosiy guruhga yuborishda xatolik: {response.status} - {error_text}")
-
-
-
-        print(f"{'='*50}")
+                    err = await resp.text()
+                    logger.error(f"Fast guruhga yuborishda xatolik: {resp.status} - {err}")
         
-        # USERBOT ORQALI XABAR YUBORISH
-        try:
-            if not only_fast:
-                short_msg = f"<b>Mijoz lichkasi:</b> {user_info}"
-                await client.send_message(
-                    ORDER_GROUP_ID,
-                    short_msg,
-                    parse_mode='html',
-                    link_preview=False
-                )
-                print(f"   ✅ Userbot orqali guruhga yuborildi")
-        except Exception as ub_err:
-            print(f"   ❌ Userbot yuborishda xatolik: {ub_err}")
-            logger.error(f"Userbot orqali yuborishda xatolik: {ub_err}")
+        # USERBOT ORQALI ALOHIDA XABAR YUBORISH OLIB TASHLANDI
+        pass
+
             
     except Exception as e:
         logger.error(f"Zakaz yuborishda umumiy xatolik: {e}")
         print(f"❌ Zakaz yuborishda umumiy xatolik: {e}")
-
-async def poll_public_groups():
-    last_msg_ids = {}
-    me = await client.get_me()
-    bot_id = int(BOT_TOKEN.split(':')[0])
-    
-    print("🔄 Public groups polling started...")
-    while True:
-        try:
-            public_links = [g for g in monitored_groups if isinstance(g, str)]
-            for link in public_links:
-                try:
-                    peer = link
-                    if "t.me/" in link:
-                        peer = link.split("t.me/")[1].split("/")[0]
-                    elif "telegram.me/" in link:
-                        peer = link.split("telegram.me/")[1].split("/")[0]
-                    
-                    if not peer:
-                        continue
-                        
-                    messages = await client.get_messages(peer, limit=5)
-                    if not messages:
-                        continue
-                        
-                    messages.reverse()
-                    for msg in messages:
-                        if not msg or not getattr(msg, 'text', None):
-                            continue
-                            
-                        chat_id_str = str(peer)
-                        if chat_id_str not in last_msg_ids:
-                            last_msg_ids[chat_id_str] = msg.id
-                            continue
-                            
-                        if msg.id > last_msg_ids[chat_id_str]:
-                            last_msg_ids[chat_id_str] = msg.id
-                            
-                            # Mock it as an event to pass to handler
-                            msg.action = None
-                            msg.is_private = False
-                            msg.is_group = True
-                            msg.is_polled_group = True
-                            
-                            # Safely pass to handler
-                            await handler(msg)
-                except Exception as e:
-                    pass
-        except Exception as e:
-            pass
-        
-        await asyncio.sleep(10)
 
 async def main():
     print("\n" + "="*60)
@@ -814,9 +731,6 @@ async def main():
         
         # Guruhlarni avtomatik yuklab olish
         await auto_discover_groups()
-        
-        # Public guruhlarni tekshirish uchun task
-        client.loop.create_task(poll_public_groups())
         
         print("🔑 Kalit so'zlarni yuklash...")
         
