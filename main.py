@@ -648,11 +648,8 @@ async def handler(event):
     if second_row:
         buttons.append(second_row)
 
-    # Faqat admin tugmalari: mijozga yozish va bloklash
+    # Faqat admin tugmasi: bloklash
     if user_id:
-        buttons.append([
-            {"text": "✍️ Mijozga yozish", "callback_data": f"reply_user_{user_id}"}
-        ])
         buttons.append([
             {"text": "🚫 Bloklash", "callback_data": f"block_{user_id}"}
         ])

@@ -991,7 +991,7 @@ async def send_taxi_order_simple(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b></b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
+        f"<b>Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
         f"<b>Telefon:</b>\n📞 {phone}\n\n"
         f"<b>Yo'nalish:</b>\n🚗 {user_data['from_city']} ➡️ {user_data['to_city']}\n\n"
         f'<b>Yo\'lovchilar:</b>\n👥 {user_data.get("passenger_count", "Noma'lum")}\n\n'
@@ -1084,7 +1084,7 @@ async def send_taxi_order(message, user, phone):
     order_message = (
         f"🚕 <b>YANGI ZAKAZ</b>\n"
         f"{'='*25}\n\n"
-        f"<b>Muboradi Mijoz Ismi:</b>\n👤 {user.first_name or 'Foydalanuvchi'}\n\n"
+        f"<b>Muboradi Mijoz Ismi:</b>\n👤 <a href='tg://user?id={user.id}'>{user.first_name or 'Foydalanuvchi'}</a>\n\n"
         f"<b>Telefon:</b>\n📞 {formatted_phone}\n\n"
         f"<b>Qayerga:</b>\n🎯 {user_data['destination']}"
     )
